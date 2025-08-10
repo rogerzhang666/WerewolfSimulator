@@ -243,13 +243,13 @@ class GameEngine:
             if target:
                 self.game.killed_at_night = target
 
-                # 记录狼人行动
+                # 记录狼人行动（私有日志，只有狼人能看到）
                 for werewolf in werewolves:
-                    self.game.log(werewolf.name, f"狼人选择了{target.name}作为击杀目标")
+                    self.game.log(werewolf.name, f"狼人选择了{target.name}作为击杀目标", "werewolf", False)
 
                     # 如果有该目标的理由，记录理由
                     if target.name in wolf_reasons:
-                        self.game.log(werewolf.name, wolf_reasons[target.name])
+                        self.game.log(werewolf.name, wolf_reasons[target.name], "werewolf", False)
 
         self.emit_game_update("狼人正在行动")
 
@@ -326,7 +326,7 @@ class GameEngine:
 
                 try:
                     check_reason = ai_client.generate_response(reason_prompt, seer, "seer_check_reason")
-                    self.game.log(seer.name, check_reason)
+                    self.game.log(seer.name, check_reason, "seer", False)
 
                     # 更新决策原因
                     for decision in seer.memory["decisions"]:
@@ -378,7 +378,7 @@ class GameEngine:
                     if use_save:
                         self.game.saved_by_witch = True
                         self.game.witch_used_save = True  # 标记解药已使用
-                        self.game.log(witch.name, f"女巫使用解药救了{killed.name}")
+                        self.game.log(witch.name, f"女巫使用解药救了{killed.name}", "witch", False)
 
                         # 更新女巫记忆
                         MemoryManager.update_witch_memory(witch, self.game, killed, True)
@@ -388,7 +388,7 @@ class GameEngine:
 
                         try:
                             save_reason = ai_client.generate_response(reason_prompt, witch, "witch_save_reason")
-                            self.game.log(witch.name, save_reason)
+                            self.game.log(witch.name, save_reason, "witch", False)
 
                             # 更新决策原因
                             for decision in witch.memory["decisions"]:
@@ -442,7 +442,7 @@ class GameEngine:
                             else:
                                 self.game.poisoned_by_witch = target
                                 self.game.witch_used_poison = True  # 标记毒药已使用
-                                self.game.log(witch.name, f"女巫使用毒药毒死了{target.name}")
+                                self.game.log(witch.name, f"女巫使用毒药毒死了{target.name}", "witch", False)
 
                                 # 更新女巫记忆
                                 MemoryManager.update_witch_memory(witch, self.game, None, False, target)
@@ -452,7 +452,7 @@ class GameEngine:
 
                                 try:
                                     poison_reason = ai_client.generate_response(reason_prompt, witch, "witch_poison_reason")
-                                    self.game.log(witch.name, poison_reason)
+                                    self.game.log(witch.name, poison_reason, "witch", False)
 
                                     # 更新决策原因
                                     for decision in witch.memory["decisions"]:
@@ -523,7 +523,7 @@ class GameEngine:
                         print(f"守卫不能连续两晚保护同一个人，改为保护{target.name}")
 
                 self.game.protected_by_guard = target
-                self.game.log(guard.name, f"守卫保护了{target.name}")
+                self.game.log(guard.name, f"守卫保护了{target.name}", "guard", False)
 
                 # 更新守卫记忆
                 MemoryManager.update_guard_memory(guard, self.game, target)
@@ -533,7 +533,7 @@ class GameEngine:
 
                 try:
                     protect_reason = ai_client.generate_response(reason_prompt, guard, "guard_protect_reason")
-                    self.game.log(guard.name, protect_reason)
+                    self.game.log(guard.name, protect_reason, "guard", False)
 
                     # 更新决策原因
                     for decision in guard.memory["decisions"]:
@@ -874,16 +874,8 @@ class GameEngine:
         if memory_summary:
             context += f"\n你的记忆：\n{memory_summary}\n"
 
-        # 添加公开信息（所有人都知道的信息）
-        context += "\n游戏历史：\n"
-        for log in self.game.logs[-10:]:
-            # 只包含公开信息，不包含角色身份信息
-            if log["source"] == "系统":
-                # 过滤掉可能泄露身份的系统消息
-                if not any(role in log["message"] for role in ["预言家", "女巫", "守卫", "猎人", "狼人"]):
-                    context += f"- 系统：{log['message']}\n"
-            else:
-                context += f"- {log['source']}：{log['message']}\n"
+        # 添加公开信息（根据角色身份决定能看到的信息）
+        context += self.get_character_visible_context(character)
 
         return context
 
@@ -908,3 +900,60 @@ class GameEngine:
             dict: 游戏状态字典
         """
         return self.game.to_dict()
+
+    def get_character_visible_context(self, character):
+        """
+        获取角色可见的上下文信息
+
+        Args:
+            character: 角色对象
+
+        Returns:
+            str: 角色可见的上下文信息
+        """
+        context = "\n游戏历史：\n"
+
+        for log in self.game.logs[-15:]:
+            # 根据角色身份和日志类型决定是否可见
+            if self.is_log_visible_to_character(log, character):
+                context += f"- {log['source']}：{log['message']}\n"
+
+        return context
+
+    def is_log_visible_to_character(self, log, character):
+        """
+        判断日志是否对指定角色可见
+
+        Args:
+            log: 日志记录
+            character: 角色对象
+
+        Returns:
+            bool: 是否可见
+        """
+        # 如果是公开日志，所有人都能看到
+        if log.get("is_public", True):
+            return True
+
+        # 如果是私有日志，只有特定角色能看到
+        log_phase = log.get("phase", "")
+        log_source = log.get("source", "")
+
+        # 狼人可以看到其他狼人的行动
+        if character.role == "werewolf" and log_phase == "werewolf":
+            return True
+
+        # 预言家只能看到自己的查验结果
+        if character.role == "seer" and log_phase == "seer" and log_source == character.name:
+            return True
+
+        # 女巫只能看到自己的行动
+        if character.role == "witch" and log_phase == "witch" and log_source == character.name:
+            return True
+
+        # 守卫只能看到自己的行动
+        if character.role == "guard" and log_phase == "guard" and log_source == character.name:
+            return True
+
+        # 其他情况都不可见
+        return False
