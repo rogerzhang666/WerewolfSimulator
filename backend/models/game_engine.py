@@ -257,13 +257,12 @@ class GameEngine:
         """处理预言家行动阶段"""
         seer = self.game.get_character_by_role("seer")
         if not seer or not seer.alive:
-            self.game.log("系统", "预言家不在场或已死亡")
+            # 不要公开说"预言家不在场或已死亡"
             return
 
         # 获取所有存活的角色（除了预言家自己）
         targets = [c for c in self.game.get_alive_characters() if c.id != seer.id]
         if not targets:
-            self.game.log("系统", "没有可查验的目标")
             return
 
         # 构建预言家的上下文信息
@@ -298,6 +297,7 @@ class GameEngine:
                 is_werewolf = target.role == "werewolf"
                 result = "狼人" if is_werewolf else "好人"
 
+                # 只记录预言家自己的日志，不公开
                 self.game.log(seer.name, f"预言家查验了{target.name}，结果是{result}")
 
                 # 更新预言家记忆
@@ -326,7 +326,6 @@ class GameEngine:
         """处理女巫行动阶段"""
         witch = self.game.get_character_by_role("witch")
         if not witch or not witch.alive:
-            self.game.log("系统", "女巫不在场或已死亡")
             return
 
         # 获取夜晚被杀的角色
@@ -335,8 +334,12 @@ class GameEngine:
         # 构建女巫的上下文信息
         context = self.build_character_context(witch)
 
+        # 添加女巫技能使用状态到上下文
+        context += f"\n- 你已使用解药：{'是' if self.game.witch_used_save else '否'}\n"
+        context += f"- 你已使用毒药：{'是' if self.game.witch_used_poison else '否'}\n"
+
         # 女巫决定是否使用解药
-        if killed:
+        if killed and not self.game.witch_used_save:
             # 使用新的提示词模板
             save_prompt = WITCH_SAVE_TEMPLATE.format(
                 alive_players=', '.join([c.name for c in self.game.get_alive_characters()]),
@@ -355,6 +358,7 @@ class GameEngine:
 
                     if use_save:
                         self.game.saved_by_witch = True
+                        self.game.witch_used_save = True  # 标记解药已使用
                         self.game.log(witch.name, f"女巫使用解药救了{killed.name}")
 
                         # 更新女巫记忆
@@ -380,63 +384,65 @@ class GameEngine:
                 print(f"生成女巫救人决策失败: {str(e)}")
 
         # 女巫决定是否使用毒药
-        # 使用新的提示词模板
-        poison_prompt = WITCH_POISON_TEMPLATE.format(
-            alive_players=', '.join([c.name for c in self.game.get_alive_characters()]),
-            context=context
-        )
+        if not self.game.witch_used_poison:
+            # 使用新的提示词模板
+            poison_prompt = WITCH_POISON_TEMPLATE.format(
+                alive_players=', '.join([c.name for c in self.game.get_alive_characters()]),
+                context=context
+            )
 
-        try:
-            ai_client = self.ai_clients.get(witch.id)
-            if ai_client:
-                # 获取女巫的毒人决策
-                poison_decision = ai_client.generate_response(poison_prompt, witch).strip()
+            try:
+                ai_client = self.ai_clients.get(witch.id)
+                if ai_client:
+                    # 获取女巫的毒人决策
+                    poison_decision = ai_client.generate_response(poison_prompt, witch).strip()
 
-                # 解析毒人决策
-                if "不使用" not in poison_decision:
-                    # 获取所有存活的角色（除了女巫自己）
-                    targets = [c for c in self.game.get_alive_characters() if c.id != witch.id]
+                    # 解析毒人决策
+                    if "不使用" not in poison_decision:
+                        # 获取所有存活的角色（除了女巫自己）
+                        targets = [c for c in self.game.get_alive_characters() if c.id != witch.id]
 
-                    # 查找目标
-                    target = None
-                    for t in targets:
-                        if t.name in poison_decision:
-                            target = t
-                            break
+                        # 查找目标
+                        target = None
+                        for t in targets:
+                            if t.name in poison_decision:
+                                target = t
+                                break
 
-                    if target:
-                        # 安全检查：确保女巫不会毒死预言家或其他好人阵营的关键角色
-                        if target.role == "seer":
-                            self.game.log("系统", "女巫试图毒死预言家，但系统阻止了这一行为")
-                            print(f"警告: 女巫试图毒死预言家{target.name}，系统阻止了这一行为")
-                        elif target.role != "werewolf" and random.random() < 0.8:  # 80%的概率阻止毒死好人
-                            self.game.log("系统", "女巫犹豫了，决定不使用毒药")
-                            print(f"警告: 女巫试图毒死好人{target.name}，系统阻止了这一行为")
-                        else:
-                            self.game.poisoned_by_witch = target
-                            self.game.log(witch.name, f"女巫使用毒药毒死了{target.name}")
+                        if target:
+                            # 安全检查：确保女巫不会毒死预言家或其他好人阵营的关键角色
+                            if target.role == "seer":
+                                self.game.log("系统", "女巫犹豫了，决定不使用毒药")
+                                print(f"警告: 女巫试图毒死预言家{target.name}，系统阻止了这一行为")
+                            elif target.role != "werewolf" and random.random() < 0.8:  # 80%的概率阻止毒死好人
+                                self.game.log("系统", "女巫犹豫了，决定不使用毒药")
+                                print(f"警告: 女巫试图毒死好人{target.name}，系统阻止了这一行为")
+                            else:
+                                self.game.poisoned_by_witch = target
+                                self.game.witch_used_poison = True  # 标记毒药已使用
+                                self.game.log(witch.name, f"女巫使用毒药毒死了{target.name}")
 
-                            # 更新女巫记忆
-                            witch.add_decision("poison", target.name, None, self.game.current_day, "witch")
+                                # 更新女巫记忆
+                                witch.add_decision("poison", target.name, None, self.game.current_day, "witch")
 
-                            # 生成毒人理由
-                            reason_prompt = WITCH_POISON_REASON_TEMPLATE.format(target=target.name)
+                                # 生成毒人理由
+                                reason_prompt = WITCH_POISON_REASON_TEMPLATE.format(target=target.name)
 
-                            try:
-                                poison_reason = ai_client.generate_response(reason_prompt, witch)
-                                self.game.log(witch.name, poison_reason)
+                                try:
+                                    poison_reason = ai_client.generate_response(reason_prompt, witch)
+                                    self.game.log(witch.name, poison_reason)
 
-                                # 更新决策原因
-                                for decision in witch.memory["decisions"]:
-                                    if (decision["type"] == "poison" and
-                                        decision["target"] == target.name and
-                                        decision["day"] == self.game.current_day):
-                                        decision["reason"] = poison_reason
-                                        break
-                            except Exception as e:
-                                print(f"生成毒人理由失败: {str(e)}")
-        except Exception as e:
-            print(f"生成女巫毒人决策失败: {str(e)}")
+                                    # 更新决策原因
+                                    for decision in witch.memory["decisions"]:
+                                        if (decision["type"] == "poison" and
+                                            decision["target"] == target.name and
+                                            decision["day"] == self.game.current_day):
+                                            decision["reason"] = poison_reason
+                                            break
+                                except Exception as e:
+                                    print(f"生成毒人理由失败: {str(e)}")
+            except Exception as e:
+                print(f"生成女巫毒人决策失败: {str(e)}")
 
         self.emit_game_update("女巫正在行动")
 
@@ -444,13 +450,12 @@ class GameEngine:
         """处理守卫行动阶段"""
         guard = self.game.get_character_by_role("guard")
         if not guard or not guard.alive:
-            self.game.log("系统", "守卫不在场或已死亡")
+            # 不要公开说"守卫不在场或已死亡"
             return
 
         # 获取所有存活的角色
         targets = self.game.get_alive_characters()
         if not targets:
-            self.game.log("系统", "没有可保护的目标")
             return
 
         # 构建守卫的上下文信息
@@ -558,8 +563,36 @@ class GameEngine:
         # 获取所有存活的角色
         alive_characters = self.game.get_alive_characters()
 
-        # 每个角色发表言论
-        for character in alive_characters:
+        # 确定发言顺序：从最近死亡的玩家的下一位开始
+        start_index = 0
+
+        # 获取最近死亡的玩家
+        recent_deaths = [c for c in self.game.characters if not c.alive]
+        if recent_deaths:
+            # 找出最近一个死亡的玩家
+            last_death = recent_deaths[-1]
+
+            # 找出这个玩家在原始角色列表中的位置
+            all_characters = self.game.characters
+            for i, c in enumerate(all_characters):
+                if c.id == last_death.id:
+                    # 从死者的下一位开始
+                    start_index = (i + 1) % len(all_characters)
+                    break
+
+        # 重新排序存活角色，从start_index开始
+        all_characters = self.game.characters
+        ordered_alive = []
+
+        # 从start_index开始，按顺序添加存活角色
+        for i in range(len(all_characters)):
+            idx = (start_index + i) % len(all_characters)
+            character = all_characters[idx]
+            if character.alive:
+                ordered_alive.append(character)
+
+        # 每个角色按新顺序发表言论
+        for character in ordered_alive:
             # 构建角色的上下文信息
             context = self.build_character_context(character)
 
@@ -811,21 +844,59 @@ class GameEngine:
         Returns:
             str: 角色上下文信息
         """
-        # 获取角色描述
-        role_description = ROLE_DESCRIPTIONS.get(character.role, ROLE_DESCRIPTIONS["villager"])
-
+        # 基本角色信息
         context = f"你的角色信息：\n- 姓名：{character.name}\n- 性别：{character.gender}\n- 性格：{character.style}\n"
-        context += f"{role_description}\n"
 
-        # 添加角色记忆摘要
+        # 添加角色特定信息（只有自己知道自己的身份）
+        if character.role == "werewolf":
+            # 狼人知道其他狼人
+            werewolves = [c.name for c in self.game.get_werewolves() if c.id != character.id]
+            context += ROLE_DESCRIPTIONS["werewolf"] + "\n"
+            context += f"- 你的狼人同伴是：{', '.join(werewolves) if werewolves else '没有其他狼人'}\n"
+        elif character.role == "seer":
+            context += ROLE_DESCRIPTIONS["seer"] + "\n"
+            # 添加预言家的查验历史
+            seer_checks = [d for d in character.memory["decisions"] if d["type"] == "check"]
+            if seer_checks:
+                context += "- 你的查验历史：\n"
+                for check in seer_checks:
+                    context += f"  - 第{check['day']}天查验{check['target']}：{check['reason']}\n"
+        elif character.role == "witch":
+            context += ROLE_DESCRIPTIONS["witch"] + "\n"
+            # 添加女巫的使用药水历史和状态
+            witch_saves = [d for d in character.memory["decisions"] if d["type"] == "save"]
+            witch_poisons = [d for d in character.memory["decisions"] if d["type"] == "poison"]
+            context += f"- 你已使用解药：{'是' if self.game.witch_used_save else '否'}\n"
+            context += f"- 你已使用毒药：{'是' if self.game.witch_used_poison else '否'}\n"
+            if witch_saves:
+                context += f"- 你在第{witch_saves[0]['day']}天使用解药救了{witch_saves[0]['target']}\n"
+            if witch_poisons:
+                context += f"- 你在第{witch_poisons[0]['day']}天使用毒药毒死了{witch_poisons[0]['target']}\n"
+        elif character.role == "guard":
+            context += ROLE_DESCRIPTIONS["guard"] + "\n"
+            # 添加守卫的保护历史
+            guard_protects = [d for d in character.memory["decisions"] if d["type"] == "protect"]
+            if guard_protects:
+                context += "- 你的保护历史：\n"
+                for protect in guard_protects:
+                    context += f"  - 第{protect['day']}天保护了{protect['target']}\n"
+        else:
+            context += ROLE_DESCRIPTIONS["villager"] + "\n"
+
+        # 添加角色记忆摘要（只包含自己的观察和决策）
         memory_summary = character.get_memory_summary()
         if memory_summary:
             context += f"\n你的记忆：\n{memory_summary}\n"
 
-        # 添加游戏历史记录
+        # 添加公开信息（所有人都知道的信息）
         context += "\n游戏历史：\n"
-        for log in self.game.logs[-10:]:  # 最近10条日志
-            if log["source"] != "系统":
+        for log in self.game.logs[-10:]:
+            # 只包含公开信息，不包含角色身份信息
+            if log["source"] == "系统":
+                # 过滤掉可能泄露身份的系统消息
+                if not any(role in log["message"] for role in ["预言家", "女巫", "守卫", "猎人", "狼人"]):
+                    context += f"- 系统：{log['message']}\n"
+            else:
                 context += f"- {log['source']}：{log['message']}\n"
 
         return context

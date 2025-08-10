@@ -26,20 +26,22 @@ class GameStatus(Enum):
     FINISHED = "finished"     # 游戏结束
 
 class Game:
-    """游戏类，管理游戏状态和流程"""
+    """游戏类，负责管理游戏状态和角色"""
 
     def __init__(self):
         """初始化游戏"""
-        self.characters = []          # 角色列表
+        self.characters = []  # 角色列表
+        self.current_day = 0  # 当前天数
         self.phase = GamePhase.SETUP  # 当前游戏阶段
         self.status = GameStatus.WAITING  # 当前游戏状态
-        self.current_day = 0          # 当前天数
-        self.logs = []                # 游戏日志
-        self.killed_at_night = None   # 夜晚被杀的角色
-        self.saved_by_witch = False   # 女巫是否使用了解药
-        self.poisoned_by_witch = None # 女巫毒杀的角色
-        self.protected_by_guard = None # 守卫保护的角色
-        self.votes = {}               # 投票记录
+        self.logs = []  # 游戏日志
+        self.votes = {}  # 投票记录
+        self.killed_at_night = None  # 夜晚被杀的角色
+        self.saved_by_witch = False  # 是否被女巫救
+        self.poisoned_by_witch = None  # 被女巫毒死的角色
+        self.protected_by_guard = None  # 被守卫保护的角色
+        self.witch_used_save = False  # 女巫是否已使用解药
+        self.witch_used_poison = False  # 女巫是否已使用毒药
 
     def add_character(self, character):
         """添加角色到游戏"""
