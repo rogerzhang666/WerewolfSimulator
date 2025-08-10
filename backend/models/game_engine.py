@@ -727,7 +727,7 @@ class GameEngine:
                     reason_prompt = VOTE_REASON_TEMPLATE.format(target=target.name)
 
                     try:
-                         vote_reason = ai_client.generate_response(reason_prompt, voter, "vote_reason")
+                        vote_reason = ai_client.generate_response(reason_prompt, voter, "vote_reason")
                         self.game.log(voter.name, vote_reason)
 
                         # 更新投票记忆
