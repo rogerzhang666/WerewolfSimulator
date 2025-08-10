@@ -11,6 +11,7 @@ from backend.models.game import Game, GamePhase, GameStatus
 from backend.models.character import Character
 from backend.utils.ai_client import get_ai_client
 from backend.utils.prompt_templates import *  # 导入提示词模板
+from backend.utils.memory_manager import MemoryManager  # 导入记忆管理器
 
 class GameEngine:
     """游戏引擎类，负责管理游戏流程和AI交互"""
@@ -161,13 +162,11 @@ class GameEngine:
         """处理狼人行动阶段"""
         werewolves = self.game.get_werewolves()
         if not werewolves:
-            self.game.log("系统", "没有存活的狼人")
             return
 
         # 获取所有存活的非狼人角色
         targets = [c for c in self.game.get_alive_characters() if c.role != "werewolf"]
         if not targets:
-            self.game.log("系统", "没有可击杀的目标")
             return
 
         # 狼人讨论决定击杀目标
@@ -179,10 +178,20 @@ class GameEngine:
             # 构建狼人的上下文信息
             context = self.build_character_context(werewolf)
 
+            werewolf_teammates = [w.name for w in werewolves if w.id != werewolf.id]
+
+            if wolf_votes:
+                context += "\n你的狼人同伴已经投票：\n"
+                for target_name, votes in wolf_votes.items():
+                    context += f"- {target_name}：{votes}票\n"
+                if wolf_reasons:
+                    for target_name, reason in wolf_reasons.items():
+                        context += f"- 击杀{target_name}的理由：{reason}\n"
+
             # 使用新的提示词模板
             prompt = WEREWOLF_KILL_TEMPLATE.format(
                 alive_players=', '.join([c.name for c in self.game.get_alive_characters()]),
-                werewolf_teammates=', '.join([w.name for w in werewolves if w.id != werewolf.id]) or "没有其他狼人",
+                werewolf_teammates=', '.join(werewolf_teammates) if werewolf_teammates else "没有其他狼人",
                 targets=', '.join([c.name for c in targets]),
                 context=context
             )
@@ -218,7 +227,7 @@ class GameEngine:
                         wolf_reasons[target.name] = kill_reason
 
                         # 更新狼人记忆
-                        werewolf.add_decision("kill", target.name, kill_reason, self.game.current_day, "werewolf")
+                        MemoryManager.update_werewolf_memory(werewolf, self.game, target, kill_reason)
                     except Exception as e:
                         print(f"生成击杀理由失败: {str(e)}")
             except Exception as e:
@@ -242,15 +251,6 @@ class GameEngine:
                     if target.name in wolf_reasons:
                         self.game.log(werewolf.name, wolf_reasons[target.name])
 
-                        # 为其他狼人添加观察记录
-                        for other_wolf in werewolves:
-                            if other_wolf.id != werewolf.id:
-                                other_wolf.add_observation(
-                                    f"{werewolf.name}想击杀{target.name}，理由：{wolf_reasons[target.name]}",
-                                    self.game.current_day,
-                                    "werewolf"
-                                )
-
         self.emit_game_update("狼人正在行动")
 
     def handle_seer_phase(self):
@@ -268,10 +268,28 @@ class GameEngine:
         # 构建预言家的上下文信息
         context = self.build_character_context(seer)
 
+        # 添加预言家特有的信息：之前的查验结果
+        seer_checks = [d for d in seer.memory["decisions"] if d["type"] == "check"]
+        if seer_checks:
+            context += "\n你之前的查验结果：\n"
+            for check in seer_checks:
+                context += f"- 第{check['day']}天查验{check['target']}：{check['reason']}\n"
+
+        # 排除已经查验过的目标
+        checked_targets = [d["target"] for d in seer_checks]
+        unchecked_targets = [t for t in targets if t.name not in checked_targets]
+
+        # 如果所有人都查验过了，允许重复查验
+        if not unchecked_targets:
+            unchecked_targets = targets
+            context += "\n你已经查验过所有存活的玩家，可以选择重新查验某人。\n"
+        else:
+            context += "\n你还没有查验过以下玩家：" + ", ".join([t.name for t in unchecked_targets]) + "\n"
+
         # 使用新的提示词模板
         prompt = SEER_CHECK_TEMPLATE.format(
             alive_players=', '.join([c.name for c in self.game.get_alive_characters()]),
-            targets=', '.join([c.name for c in targets]),
+            targets=', '.join([t.name for t in unchecked_targets]),
             context=context
         )
 
@@ -283,14 +301,14 @@ class GameEngine:
 
                 # 解析查验决策，找到对应的目标角色
                 target = None
-                for t in targets:
+                for t in unchecked_targets:
                     if t.name in check_decision:
                         target = t
                         break
 
                 # 如果无法解析或没有找到匹配的目标，随机选择一个
                 if not target:
-                    target = random.choice(targets)
+                    target = random.choice(unchecked_targets)
                     print(f"警告: {seer.name}的查验决策'{check_decision}'无法解析，随机选择了{target.name}")
 
                 # 执行查验
@@ -301,13 +319,7 @@ class GameEngine:
                 self.game.log(seer.name, f"预言家查验了{target.name}，结果是{result}")
 
                 # 更新预言家记忆
-                seer.add_decision("check", target.name, f"查验结果：{result}", self.game.current_day, "seer")
-
-                # 更新预言家对目标的看法
-                if is_werewolf:
-                    seer.update_belief(target.name, "是狼人", 1.0)  # 100%确定
-                else:
-                    seer.update_belief(target.name, "是好人", 1.0)  # 100%确定
+                MemoryManager.update_seer_memory(seer, self.game, target, result)
 
                 # 生成查验理由
                 reason_prompt = SEER_CHECK_REASON_TEMPLATE.format(target=target.name, result=result)
@@ -315,6 +327,14 @@ class GameEngine:
                 try:
                     check_reason = ai_client.generate_response(reason_prompt, seer)
                     self.game.log(seer.name, check_reason)
+
+                    # 更新决策原因
+                    for decision in seer.memory["decisions"]:
+                        if (decision["type"] == "check" and
+                            decision["target"] == target.name and
+                            decision["day"] == self.game.current_day):
+                            decision["reason"] = f"查验结果：{result}，理由：{check_reason}"
+                            break
                 except Exception as e:
                     print(f"生成查验理由失败: {str(e)}")
         except Exception as e:
@@ -334,12 +354,11 @@ class GameEngine:
         # 构建女巫的上下文信息
         context = self.build_character_context(witch)
 
-        # 添加女巫技能使用状态到上下文
-        context += f"\n- 你已使用解药：{'是' if self.game.witch_used_save else '否'}\n"
-        context += f"- 你已使用毒药：{'是' if self.game.witch_used_poison else '否'}\n"
-
         # 女巫决定是否使用解药
         if killed and not self.game.witch_used_save:
+            # 添加女巫特有的信息：她知道谁被杀了
+            context += f"\n今晚{killed.name}被狼人杀害了。你可以选择使用解药救活他，或者不使用解药。\n"
+
             # 使用新的提示词模板
             save_prompt = WITCH_SAVE_TEMPLATE.format(
                 alive_players=', '.join([c.name for c in self.game.get_alive_characters()]),
@@ -362,7 +381,7 @@ class GameEngine:
                         self.game.log(witch.name, f"女巫使用解药救了{killed.name}")
 
                         # 更新女巫记忆
-                        witch.add_decision("save", killed.name, None, self.game.current_day, "witch")
+                        MemoryManager.update_witch_memory(witch, self.game, killed, True)
 
                         # 生成救人理由
                         reason_prompt = WITCH_SAVE_REASON_TEMPLATE.format(target=killed.name)
@@ -380,6 +399,9 @@ class GameEngine:
                                     break
                         except Exception as e:
                             print(f"生成救人理由失败: {str(e)}")
+                    else:
+                        # 即使不救，女巫也知道谁被杀了
+                        MemoryManager.update_witch_memory(witch, self.game, killed, False)
             except Exception as e:
                 print(f"生成女巫救人决策失败: {str(e)}")
 
@@ -423,7 +445,7 @@ class GameEngine:
                                 self.game.log(witch.name, f"女巫使用毒药毒死了{target.name}")
 
                                 # 更新女巫记忆
-                                witch.add_decision("poison", target.name, None, self.game.current_day, "witch")
+                                MemoryManager.update_witch_memory(witch, self.game, None, False, target)
 
                                 # 生成毒人理由
                                 reason_prompt = WITCH_POISON_REASON_TEMPLATE.format(target=target.name)
@@ -504,7 +526,7 @@ class GameEngine:
                 self.game.log(guard.name, f"守卫保护了{target.name}")
 
                 # 更新守卫记忆
-                guard.add_decision("protect", target.name, None, self.game.current_day, "guard")
+                MemoryManager.update_guard_memory(guard, self.game, target)
 
                 # 生成保护理由
                 reason_prompt = GUARD_PROTECT_REASON_TEMPLATE.format(target=target.name)
@@ -618,16 +640,7 @@ class GameEngine:
                     self.emit_game_update(f"{character.name}发言: {response}")
 
                     # 更新角色记忆
-                    character.add_statement(response, self.game.current_day, "discussion")
-
-                    # 分析发言，更新对其他角色的看法
-                    for other in alive_characters:
-                        if other.id != character.id and other.name in response:
-                            # 简单的情感分析，检测是否表达了怀疑
-                            if any(word in response for word in ["怀疑", "可疑", "狼人", "不信任"]):
-                                character.update_belief(other.name, "可能是狼人", 0.6)
-                            elif any(word in response for word in ["信任", "好人", "相信"]):
-                                character.update_belief(other.name, "可能是好人", 0.6)
+                    MemoryManager.update_discussion_memory(character, self.game, response, alive_characters)
 
                     # 为其他角色添加观察记录
                     for observer in alive_characters:
@@ -710,9 +723,6 @@ class GameEngine:
                     self.game.log(voter.name, f"投票给了{target.name}")
                     self.emit_game_update(f"{voter.name}投票给了{target.name}")
 
-                    # 更新角色记忆
-                    voter.add_decision("vote", target.name, None, self.game.current_day, "vote")
-
                     # 生成投票理由
                     reason_prompt = VOTE_REASON_TEMPLATE.format(target=target.name)
 
@@ -720,13 +730,8 @@ class GameEngine:
                         vote_reason = ai_client.generate_response(reason_prompt, voter)
                         self.game.log(voter.name, vote_reason)
 
-                        # 更新投票决策的原因
-                        for decision in voter.memory["decisions"]:
-                            if (decision["type"] == "vote" and
-                                decision["target"] == target.name and
-                                decision["day"] == self.game.current_day):
-                                decision["reason"] = vote_reason
-                                break
+                        # 更新投票记忆
+                        MemoryManager.update_vote_memory(voter, self.game, target, vote_reason)
 
                         # 为其他角色添加观察记录
                         for observer in alive_characters:
@@ -849,39 +854,20 @@ class GameEngine:
 
         # 添加角色特定信息（只有自己知道自己的身份）
         if character.role == "werewolf":
-            # 狼人知道其他狼人
-            werewolves = [c.name for c in self.game.get_werewolves() if c.id != character.id]
             context += ROLE_DESCRIPTIONS["werewolf"] + "\n"
-            context += f"- 你的狼人同伴是：{', '.join(werewolves) if werewolves else '没有其他狼人'}\n"
         elif character.role == "seer":
             context += ROLE_DESCRIPTIONS["seer"] + "\n"
-            # 添加预言家的查验历史
-            seer_checks = [d for d in character.memory["decisions"] if d["type"] == "check"]
-            if seer_checks:
-                context += "- 你的查验历史：\n"
-                for check in seer_checks:
-                    context += f"  - 第{check['day']}天查验{check['target']}：{check['reason']}\n"
         elif character.role == "witch":
             context += ROLE_DESCRIPTIONS["witch"] + "\n"
-            # 添加女巫的使用药水历史和状态
-            witch_saves = [d for d in character.memory["decisions"] if d["type"] == "save"]
-            witch_poisons = [d for d in character.memory["decisions"] if d["type"] == "poison"]
-            context += f"- 你已使用解药：{'是' if self.game.witch_used_save else '否'}\n"
-            context += f"- 你已使用毒药：{'是' if self.game.witch_used_poison else '否'}\n"
-            if witch_saves:
-                context += f"- 你在第{witch_saves[0]['day']}天使用解药救了{witch_saves[0]['target']}\n"
-            if witch_poisons:
-                context += f"- 你在第{witch_poisons[0]['day']}天使用毒药毒死了{witch_poisons[0]['target']}\n"
         elif character.role == "guard":
             context += ROLE_DESCRIPTIONS["guard"] + "\n"
-            # 添加守卫的保护历史
-            guard_protects = [d for d in character.memory["decisions"] if d["type"] == "protect"]
-            if guard_protects:
-                context += "- 你的保护历史：\n"
-                for protect in guard_protects:
-                    context += f"  - 第{protect['day']}天保护了{protect['target']}\n"
         else:
             context += ROLE_DESCRIPTIONS["villager"] + "\n"
+
+        # 添加角色特定的上下文信息
+        role_context = MemoryManager.get_role_specific_context(character, self.game)
+        if role_context:
+            context += role_context
 
         # 添加角色记忆摘要（只包含自己的观察和决策）
         memory_summary = character.get_memory_summary()
