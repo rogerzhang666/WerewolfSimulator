@@ -243,10 +243,13 @@ class GameEngine:
             if target:
                 self.game.killed_at_night = target
 
+                # 记录狼人行动（私有日志）
                 # 记录狼人行动
+                    self.game.log(werewolf.name, f"狼人选择了{target.name}作为击杀目标", "werewolf", False)
                 for werewolf in werewolves:
                     self.game.log(werewolf.name, f"狼人选择了{target.name}作为击杀目标")
 
+                        self.game.log(werewolf.name, wolf_reasons[target.name], "werewolf", False)
                     # 如果有该目标的理由，记录理由
                     if target.name in wolf_reasons:
                         self.game.log(werewolf.name, wolf_reasons[target.name])
@@ -312,6 +315,8 @@ class GameEngine:
                     print(f"警告: {seer.name}的查验决策'{check_decision}'无法解析，随机选择了{target.name}")
 
                 # 执行查验
+                # 只记录预言家自己的私有日志，不公开
+                self.game.log(seer.name, f"预言家查验了{target.name}，结果是{result}", "seer", False)
                 is_werewolf = target.role == "werewolf"
                 result = "狼人" if is_werewolf else "好人"
 
@@ -321,6 +326,7 @@ class GameEngine:
                 # 更新预言家记忆
                 MemoryManager.update_seer_memory(seer, self.game, target, result)
 
+                    self.game.log(seer.name, check_reason, "seer", False)
                 # 生成查验理由
                 reason_prompt = SEER_CHECK_REASON_TEMPLATE.format(target=target.name, result=result)
 
@@ -372,6 +378,7 @@ class GameEngine:
                     # 获取女巫的救人决策
                     save_decision = ai_client.generate_response(save_prompt, witch).strip().lower()
 
+                        self.game.log(witch.name, f"女巫使用解药救了{killed.name}", "witch", False)
                     # 解析救人决策
                     use_save = "救" in save_decision
 
@@ -381,6 +388,7 @@ class GameEngine:
                         self.game.log(witch.name, f"女巫使用解药救了{killed.name}")
 
                         # 更新女巫记忆
+                            self.game.log(witch.name, save_reason, "witch", False)
                         MemoryManager.update_witch_memory(witch, self.game, killed, True)
 
                         # 生成救人理由
@@ -396,8 +404,24 @@ class GameEngine:
                                     decision["target"] == killed.name and
                                     decision["day"] == self.game.current_day):
                                     decision["reason"] = save_reason
+        elif killed:
+            # 即使不能救人，女巫也知道谁被杀了
+            MemoryManager.update_witch_memory(witch, self.game, killed, False)
                                     break
+        # 女巫决定是否使用毒药（无论是否有人被杀，只要还有毒药就可以使用）
                         except Exception as e:
+            # 添加毒药使用信息
+            if killed:
+                context += f"\n今晚{killed.name}被狼人杀害了。"
+                if not self.game.witch_used_save:
+                    context += "你可以选择使用解药救他。"
+                else:
+                    context += "你已经使用过解药了。"
+            else:
+                context += "\n今晚没有人被狼人杀害。"
+
+            context += "你还可以选择使用毒药毒死一个人，或者不使用毒药。\n"
+
                             print(f"生成救人理由失败: {str(e)}")
                     else:
                         # 即使不救，女巫也知道谁被杀了
@@ -425,12 +449,15 @@ class GameEngine:
                         targets = [c for c in self.game.get_alive_characters() if c.id != witch.id]
 
                         # 查找目标
+                                self.game.log("系统", "女巫犹豫了，决定不使用毒药", "witch", False)
                         target = None
                         for t in targets:
+                                self.game.log("系统", "女巫犹豫了，决定不使用毒药", "witch", False)
                             if t.name in poison_decision:
                                 target = t
                                 break
 
+                                self.game.log(witch.name, f"女巫使用毒药毒死了{target.name}", "witch", False)
                         if target:
                             # 安全检查：确保女巫不会毒死预言家或其他好人阵营的关键角色
                             if target.role == "seer":
@@ -440,6 +467,7 @@ class GameEngine:
                                 self.game.log("系统", "女巫犹豫了，决定不使用毒药")
                                 print(f"警告: 女巫试图毒死好人{target.name}，系统阻止了这一行为")
                             else:
+                                    self.game.log(witch.name, poison_reason, "witch", False)
                                 self.game.poisoned_by_witch = target
                                 self.game.witch_used_poison = True  # 标记毒药已使用
                                 self.game.log(witch.name, f"女巫使用毒药毒死了{target.name}")
@@ -566,6 +594,7 @@ class GameEngine:
             self.game.log("系统", f"{killed.name}在夜晚被杀害")
             self.emit_game_update(f"{killed.name}在夜晚被杀害")
 
+        self.game.log("系统", "开始讨论", "discussion", True)
         # 处理被毒角色
         if poisoned:
             poisoned.alive = False
@@ -621,6 +650,8 @@ class GameEngine:
             # 获取角色特定的讨论指导
             role_guidance = ROLE_DISCUSSION_GUIDANCE.get(character.role, ROLE_DISCUSSION_GUIDANCE["villager"])
 
+                    # 记录角色发言到游戏日志（公开信息）
+                    self.game.log(character.name, response, "discussion", True)
             # 使用新的提示词模板
             prompt = DISCUSSION_TEMPLATE.format(
                 day=self.game.current_day,
@@ -638,14 +669,17 @@ class GameEngine:
                     # 记录角色发言到游戏日志
                     self.game.log(character.name, response)
                     self.emit_game_update(f"{character.name}发言: {response}")
+                self.game.log(character.name, "（发言系统故障）", "discussion", True)
 
                     # 更新角色记忆
                     MemoryManager.update_discussion_memory(character, self.game, response, alive_characters)
+        self.game.log("系统", "开始投票", "vote", True)
 
                     # 为其他角色添加观察记录
                     for observer in alive_characters:
                         if observer.id != character.id:
                             observer.add_observation(
+            self.game.log("系统", "存活角色不足，跳过投票", "vote", True)
                                 f"{character.name}说：{response}",
                                 self.game.current_day,
                                 "discussion"
@@ -694,15 +728,28 @@ class GameEngine:
                 ai_client = self.ai_clients.get(voter.id)
                 if ai_client:
                     # 获取AI的投票决策
+                            print(f"警告: 狼人{voter.name}试图投票给狼人同伴，系统调整为投票给{target.name}")
                     vote_decision = ai_client.generate_response(prompt, voter).strip()
 
                     # 解析投票决策，找到对应的目标角色
                     target = None
                     for t in targets:
                         if t.name in vote_decision:
+                    # 只记录投票结果，不记录发言（公开信息）
+                    self.game.log(voter.name, f"投票给了{target.name}", "vote", True)
                             target = t
                             break
+                    # 更新投票记忆（不需要理由）
+                    MemoryManager.update_vote_memory(voter, self.game, target, "投票决策")
 
+                    # 为其他角色添加观察记录
+                    for observer in alive_characters:
+                        if observer.id != voter.id:
+                            observer.add_observation(
+                                f"{voter.name}投票给了{target.name}",
+                                self.game.current_day,
+                                "vote"
+                            )
                     # 如果无法解析或没有找到匹配的目标，随机选择一个
                     if not target:
                         target = random.choice(targets)
@@ -711,6 +758,7 @@ class GameEngine:
                     # 狼人不应该投票给狼人同伴（除非是为了伪装）
                     if voter.role == "werewolf" and target.role == "werewolf" and random.random() < 0.8:  # 80%的概率阻止狼人互投
                         non_werewolf_targets = [t for t in targets if t.role != "werewolf"]
+                self.game.log(voter.name, f"投票给了{target.name}", "vote", True)
                         if non_werewolf_targets:
                             target = random.choice(non_werewolf_targets)
                             print(f"警告: 狼人{voter.name}试图投票给狼人同伴{target.name}，系统调整为投票给{target.name}")
@@ -725,6 +773,7 @@ class GameEngine:
 
                     # 生成投票理由
                     reason_prompt = VOTE_REASON_TEMPLATE.format(target=target.name)
+                self.game.log("系统", f"{voted_character.name}被投票处决", "vote", True)
 
                     try:
                         vote_reason = ai_client.generate_response(reason_prompt, voter)
@@ -875,15 +924,8 @@ class GameEngine:
             context += f"\n你的记忆：\n{memory_summary}\n"
 
         # 添加公开信息（所有人都知道的信息）
-        context += "\n游戏历史：\n"
-        for log in self.game.logs[-10:]:
-            # 只包含公开信息，不包含角色身份信息
-            if log["source"] == "系统":
-                # 过滤掉可能泄露身份的系统消息
-                if not any(role in log["message"] for role in ["预言家", "女巫", "守卫", "猎人", "狼人"]):
-                    context += f"- 系统：{log['message']}\n"
-            else:
-                context += f"- {log['source']}：{log['message']}\n"
+        public_context = MemoryManager.get_public_context(character, self.game)
+        context += public_context
 
         return context
 

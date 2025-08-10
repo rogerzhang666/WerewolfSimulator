@@ -125,17 +125,28 @@ class Game:
 
         return False
 
-    def log(self, source, message):
-        """添加游戏日志"""
+    def log(self, source, message, phase=None, is_public=True):
+        """
+        记录游戏日志
+
+        Args:
+            source (str): 消息来源
+            message (str): 消息内容
+            phase (str, optional): 游戏阶段. 默认为None.
+            is_public (bool, optional): 是否为公开信息. 默认为True.
+        """
         log_entry = {
-            "source": source,
-            "message": message,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "day": self.current_day,
-            "phase": self.phase.value
+            "phase": phase or self.phase.value,
+            "source": source,
+            "message": message,
+            "is_public": is_public
         }
         self.logs.append(log_entry)
-        return log_entry
+
+        # 打印日志（可选）
+        print(f"[{log_entry['timestamp']}] [{self.current_day}天-{log_entry['phase']}] {source}: {message}")
 
     def get_alive_characters(self):
         """获取所有存活的角色"""

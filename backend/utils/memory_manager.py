@@ -231,4 +231,38 @@ class MemoryManager:
                 for protect in guard_protects:
                     context += f"  - 第{protect['day']}天保护了{protect['target']}\n"
 
+        # 平民只知道白天的公开信息，不添加任何特殊信息
+
+        return context
+
+    @staticmethod
+    def get_public_context(character, game):
+        """
+        获取公开信息上下文（所有角色都能看到的信息）
+
+        Args:
+            character: 角色
+            game: 游戏对象
+
+        Returns:
+            str: 公开信息上下文
+        """
+        context = "\n游戏历史：\n"
+
+        # 只包含公开信息
+        for log in game.logs[-15:]:  # 增加历史记录数量
+            # 只包含公开日志
+            if log.get("is_public", True):
+                if log["source"] == "系统":
+                    # 只包含公开的系统消息
+                    if any(keyword in log["message"] for keyword in [
+                        "开始讨论", "开始投票", "被投票处决", "天亮了", "平安夜",
+                        "在夜晚被杀害", "被毒死", "游戏开始", "游戏结束"
+                    ]):
+                        context += f"- 系统：{log['message']}\n"
+                else:
+                    # 只包含讨论阶段和投票阶段的发言
+                    if log.get("phase") in ["discussion", "vote"]:
+                        context += f"- {log['source']}：{log['message']}\n"
+
         return context
