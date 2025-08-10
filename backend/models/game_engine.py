@@ -316,7 +316,7 @@ class GameEngine:
                 result = "狼人" if is_werewolf else "好人"
 
                 # 只记录预言家自己的日志，不公开
-                self.game.log(seer.name, f"预言家查验了{target.name}，结果是{result}")
+                self.game.log(seer.name, f"预言家查验了{target.name}，结果是{result}", "seer", False)
 
                 # 更新预言家记忆
                 MemoryManager.update_seer_memory(seer, self.game, target, result)
