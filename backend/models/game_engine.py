@@ -10,6 +10,7 @@ from datetime import datetime
 from backend.models.game import Game, GamePhase, GameStatus
 from backend.models.character import Character
 from backend.utils.ai_client import get_ai_client
+from backend.utils.prompt_templates import *  # 导入提示词模板
 
 class GameEngine:
     """游戏引擎类，负责管理游戏流程和AI交互"""
@@ -178,24 +179,13 @@ class GameEngine:
             # 构建狼人的上下文信息
             context = self.build_character_context(werewolf)
 
-            # 使用AI生成狼人的决策
-            prompt = f"""
-            现在是狼人杀游戏的夜晚阶段，你是一名狼人。
-            当前存活的玩家有：{', '.join([c.name for c in self.game.get_alive_characters()])}
-            你的狼人同伴是：{', '.join([w.name for w in werewolves if w.id != werewolf.id])}
-
-            {context}
-
-            你需要选择一名玩家作为今晚的击杀目标。请从以下玩家中选择：
-            {', '.join([c.name for c in targets])}
-
-            请考虑以下因素：
-            1. 哪个玩家可能是预言家、女巫等神职？
-            2. 哪个玩家对狼人威胁最大？
-            3. 击杀哪个玩家可以制造混乱，让好人互相猜疑？
-
-            请只回复你选择的玩家姓名，不要有任何其他内容。
-            """
+            # 使用新的提示词模板
+            prompt = WEREWOLF_KILL_TEMPLATE.format(
+                alive_players=', '.join([c.name for c in self.game.get_alive_characters()]),
+                werewolf_teammates=', '.join([w.name for w in werewolves if w.id != werewolf.id]) or "没有其他狼人",
+                targets=', '.join([c.name for c in targets]),
+                context=context
+            )
 
             try:
                 ai_client = self.ai_clients.get(werewolf.id)
@@ -221,10 +211,7 @@ class GameEngine:
                     wolf_votes[target.name] += 1
 
                     # 生成击杀理由
-                    reason_prompt = f"""
-                    你刚刚在狼人杀游戏中选择了{target.name}作为今晚的击杀目标。
-                    请简短解释你为什么选择击杀这名玩家（不超过50字）。
-                    """
+                    reason_prompt = WEREWOLF_KILL_REASON_TEMPLATE.format(target=target.name)
 
                     try:
                         kill_reason = ai_client.generate_response(reason_prompt, werewolf)
@@ -282,23 +269,12 @@ class GameEngine:
         # 构建预言家的上下文信息
         context = self.build_character_context(seer)
 
-        # 使用AI生成预言家的决策
-        prompt = f"""
-        现在是狼人杀游戏的夜晚阶段，你是预言家。
-        当前存活的玩家有：{', '.join([c.name for c in self.game.get_alive_characters()])}
-
-        {context}
-
-        你需要选择一名玩家进行查验。请从以下玩家中选择：
-        {', '.join([c.name for c in targets])}
-
-        请考虑以下因素：
-        1. 哪个玩家的发言或行为最可疑？
-        2. 哪个玩家可能对游戏走向有重要影响？
-        3. 你之前查验过哪些玩家？（避免重复查验）
-
-        请只回复你选择查验的玩家姓名，不要有任何其他内容。
-        """
+        # 使用新的提示词模板
+        prompt = SEER_CHECK_TEMPLATE.format(
+            alive_players=', '.join([c.name for c in self.game.get_alive_characters()]),
+            targets=', '.join([c.name for c in targets]),
+            context=context
+        )
 
         try:
             ai_client = self.ai_clients.get(seer.id)
@@ -334,10 +310,7 @@ class GameEngine:
                     seer.update_belief(target.name, "是好人", 1.0)  # 100%确定
 
                 # 生成查验理由
-                reason_prompt = f"""
-                你刚刚在狼人杀游戏中查验了{target.name}，查验结果是：{result}。
-                请简短描述你为什么选择查验这名玩家，以及对查验结果的反应（不超过50字）。
-                """
+                reason_prompt = SEER_CHECK_REASON_TEMPLATE.format(target=target.name, result=result)
 
                 try:
                     check_reason = ai_client.generate_response(reason_prompt, seer)
@@ -364,21 +337,12 @@ class GameEngine:
 
         # 女巫决定是否使用解药
         if killed:
-            save_prompt = f"""
-            现在是狼人杀游戏的夜晚阶段，你是女巫。
-            当前存活的玩家有：{', '.join([c.name for c in self.game.get_alive_characters()])}
-
-            {context}
-
-            今晚{killed.name}被狼人杀害了。你有一瓶解药，可以救活他。
-
-            请考虑以下因素：
-            1. {killed.name}对游戏的重要性如何？
-            2. {killed.name}可能是什么身份？
-            3. 现在使用解药是否值得？
-
-            请只回复"救"或"不救"，不要有任何其他内容。
-            """
+            # 使用新的提示词模板
+            save_prompt = WITCH_SAVE_TEMPLATE.format(
+                alive_players=', '.join([c.name for c in self.game.get_alive_characters()]),
+                killed=killed.name,
+                context=context
+            )
 
             try:
                 ai_client = self.ai_clients.get(witch.id)
@@ -397,10 +361,7 @@ class GameEngine:
                         witch.add_decision("save", killed.name, None, self.game.current_day, "witch")
 
                         # 生成救人理由
-                        reason_prompt = f"""
-                        你刚刚在狼人杀游戏中使用解药救了{killed.name}。
-                        请简短描述你为什么决定使用解药（不超过50字）。
-                        """
+                        reason_prompt = WITCH_SAVE_REASON_TEMPLATE.format(target=killed.name)
 
                         try:
                             save_reason = ai_client.generate_response(reason_prompt, witch)
@@ -419,21 +380,11 @@ class GameEngine:
                 print(f"生成女巫救人决策失败: {str(e)}")
 
         # 女巫决定是否使用毒药
-        poison_prompt = f"""
-        现在是狼人杀游戏的夜晚阶段，你是女巫。
-        当前存活的玩家有：{', '.join([c.name for c in self.game.get_alive_characters()])}
-
-        {context}
-
-        你有一瓶毒药，可以毒死一名玩家。
-
-        请考虑以下因素：
-        1. 你是否非常确定某人是狼人？
-        2. 现在使用毒药是否值得？
-        3. 是否应该保留毒药等待更关键的时刻？
-
-        如果你决定使用毒药，请回复要毒死的玩家姓名；如果决定不使用，请回复"不使用"。
-        """
+        # 使用新的提示词模板
+        poison_prompt = WITCH_POISON_TEMPLATE.format(
+            alive_players=', '.join([c.name for c in self.game.get_alive_characters()]),
+            context=context
+        )
 
         try:
             ai_client = self.ai_clients.get(witch.id)
@@ -454,31 +405,36 @@ class GameEngine:
                             break
 
                     if target:
-                        self.game.poisoned_by_witch = target
-                        self.game.log(witch.name, f"女巫使用毒药毒死了{target.name}")
+                        # 安全检查：确保女巫不会毒死预言家或其他好人阵营的关键角色
+                        if target.role == "seer":
+                            self.game.log("系统", "女巫试图毒死预言家，但系统阻止了这一行为")
+                            print(f"警告: 女巫试图毒死预言家{target.name}，系统阻止了这一行为")
+                        elif target.role != "werewolf" and random.random() < 0.8:  # 80%的概率阻止毒死好人
+                            self.game.log("系统", "女巫犹豫了，决定不使用毒药")
+                            print(f"警告: 女巫试图毒死好人{target.name}，系统阻止了这一行为")
+                        else:
+                            self.game.poisoned_by_witch = target
+                            self.game.log(witch.name, f"女巫使用毒药毒死了{target.name}")
 
-                        # 更新女巫记忆
-                        witch.add_decision("poison", target.name, None, self.game.current_day, "witch")
+                            # 更新女巫记忆
+                            witch.add_decision("poison", target.name, None, self.game.current_day, "witch")
 
-                        # 生成毒人理由
-                        reason_prompt = f"""
-                        你刚刚在狼人杀游戏中使用毒药毒死了{target.name}。
-                        请简短描述你为什么选择毒死这名玩家（不超过50字）。
-                        """
+                            # 生成毒人理由
+                            reason_prompt = WITCH_POISON_REASON_TEMPLATE.format(target=target.name)
 
-                        try:
-                            poison_reason = ai_client.generate_response(reason_prompt, witch)
-                            self.game.log(witch.name, poison_reason)
+                            try:
+                                poison_reason = ai_client.generate_response(reason_prompt, witch)
+                                self.game.log(witch.name, poison_reason)
 
-                            # 更新决策原因
-                            for decision in witch.memory["decisions"]:
-                                if (decision["type"] == "poison" and
-                                    decision["target"] == target.name and
-                                    decision["day"] == self.game.current_day):
-                                    decision["reason"] = poison_reason
-                                    break
-                        except Exception as e:
-                            print(f"生成毒人理由失败: {str(e)}")
+                                # 更新决策原因
+                                for decision in witch.memory["decisions"]:
+                                    if (decision["type"] == "poison" and
+                                        decision["target"] == target.name and
+                                        decision["day"] == self.game.current_day):
+                                        decision["reason"] = poison_reason
+                                        break
+                            except Exception as e:
+                                print(f"生成毒人理由失败: {str(e)}")
         except Exception as e:
             print(f"生成女巫毒人决策失败: {str(e)}")
 
@@ -500,23 +456,12 @@ class GameEngine:
         # 构建守卫的上下文信息
         context = self.build_character_context(guard)
 
-        # 使用AI生成守卫的决策
-        prompt = f"""
-        现在是狼人杀游戏的夜晚阶段，你是守卫。
-        当前存活的玩家有：{', '.join([c.name for c in self.game.get_alive_characters()])}
-
-        {context}
-
-        你需要选择一名玩家进行保护，使其今晚不会被狼人杀害。请从以下玩家中选择：
-        {', '.join([c.name for c in targets])}
-
-        请考虑以下因素：
-        1. 哪个玩家可能是重要角色（如预言家、女巫）？
-        2. 哪个玩家最可能被狼人袭击？
-        3. 你上一晚保护了谁？（守卫不能连续两晚保护同一个人）
-
-        请只回复你选择保护的玩家姓名，不要有任何其他内容。
-        """
+        # 使用新的提示词模板
+        prompt = GUARD_PROTECT_TEMPLATE.format(
+            alive_players=', '.join([c.name for c in self.game.get_alive_characters()]),
+            targets=', '.join([c.name for c in targets]),
+            context=context
+        )
 
         try:
             ai_client = self.ai_clients.get(guard.id)
@@ -557,10 +502,7 @@ class GameEngine:
                 guard.add_decision("protect", target.name, None, self.game.current_day, "guard")
 
                 # 生成保护理由
-                reason_prompt = f"""
-                你刚刚在狼人杀游戏中选择保护{target.name}。
-                请简短描述你为什么选择保护这名玩家（不超过50字）。
-                """
+                reason_prompt = GUARD_PROTECT_REASON_TEMPLATE.format(target=target.name)
 
                 try:
                     protect_reason = ai_client.generate_response(reason_prompt, guard)
@@ -621,19 +563,17 @@ class GameEngine:
             # 构建角色的上下文信息
             context = self.build_character_context(character)
 
-            # 使用AI生成角色发言
-            prompt = f"""
-            现在是狼人杀游戏的讨论阶段，请根据你的角色和游戏情况发表言论。
+            # 获取角色特定的讨论指导
+            role_guidance = ROLE_DISCUSSION_GUIDANCE.get(character.role, ROLE_DISCUSSION_GUIDANCE["villager"])
 
-            游戏信息：
-            - 当前是第{self.game.current_day}天
-            - 存活玩家：{', '.join([c.name for c in alive_characters])}
-            - 死亡玩家：{', '.join([c.name for c in self.game.characters if not c.alive])}
-
-            {context}
-
-            请以你的角色身份发表一段简短的发言（不超过100字），表达你的看法、怀疑或辩解。
-            """
+            # 使用新的提示词模板
+            prompt = DISCUSSION_TEMPLATE.format(
+                day=self.game.current_day,
+                alive_players=', '.join([c.name for c in alive_characters]),
+                dead_players=', '.join([c.name for c in self.game.characters if not c.alive]),
+                context=context,
+                role_specific_guidance=role_guidance
+            )
 
             try:
                 ai_client = self.ai_clients.get(character.id)
@@ -692,21 +632,17 @@ class GameEngine:
             # 构建角色的上下文信息
             context = self.build_character_context(voter)
 
-            # 使用AI生成角色投票决策
-            prompt = f"""
-            现在是狼人杀游戏的投票阶段，请根据你的角色和游戏情况决定投票给谁。
+            # 获取角色特定的投票指导
+            role_guidance = ROLE_VOTE_GUIDANCE.get(voter.role, ROLE_VOTE_GUIDANCE["villager"])
 
-            游戏信息：
-            - 当前是第{self.game.current_day}天
-            - 存活玩家：{', '.join([c.name for c in alive_characters])}
-
-            {context}
-
-            你需要投票处决一名玩家。请从以下玩家中选择一名你认为最可疑的：
-            {', '.join([c.name for c in targets])}
-
-            请只回复你要投票的玩家姓名，不要有任何其他内容。
-            """
+            # 使用新的提示词模板
+            prompt = VOTE_TEMPLATE.format(
+                day=self.game.current_day,
+                alive_players=', '.join([c.name for c in alive_characters]),
+                targets=', '.join([c.name for c in targets]),
+                context=context,
+                role_specific_guidance=role_guidance
+            )
 
             try:
                 ai_client = self.ai_clients.get(voter.id)
@@ -726,6 +662,13 @@ class GameEngine:
                         target = random.choice(targets)
                         print(f"警告: {voter.name}的投票决策'{vote_decision}'无法解析，随机选择了{target.name}")
 
+                    # 狼人不应该投票给狼人同伴（除非是为了伪装）
+                    if voter.role == "werewolf" and target.role == "werewolf" and random.random() < 0.8:  # 80%的概率阻止狼人互投
+                        non_werewolf_targets = [t for t in targets if t.role != "werewolf"]
+                        if non_werewolf_targets:
+                            target = random.choice(non_werewolf_targets)
+                            print(f"警告: 狼人{voter.name}试图投票给狼人同伴{target.name}，系统调整为投票给{target.name}")
+
                     # 记录投票
                     if target.id not in self.game.votes:
                         self.game.votes[target.id] = 0
@@ -738,10 +681,7 @@ class GameEngine:
                     voter.add_decision("vote", target.name, None, self.game.current_day, "vote")
 
                     # 生成投票理由
-                    reason_prompt = f"""
-                    你刚刚在狼人杀游戏中投票给了{target.name}。
-                    请简短解释你为什么选择投票给这名玩家（不超过30字）。
-                    """
+                    reason_prompt = VOTE_REASON_TEMPLATE.format(target=target.name)
 
                     try:
                         vote_reason = ai_client.generate_response(reason_prompt, voter)
@@ -814,30 +754,52 @@ class GameEngine:
             self.game.log("系统", "没有可带走的目标")
             return
 
-        # 猎人选择带走目标
-        # 在实际应用中，这里应该让AI猎人进行决策
-        # 这里简化为随机选择一个目标
-        target = random.choice(targets)
-        target.alive = False
+        # 构建猎人的上下文信息
+        context = self.build_character_context(hunter)
 
-        self.game.log(hunter.name, f"猎人带走了{target.name}")
-        self.emit_game_update(f"猎人带走了{target.name}")
-
-        # 使用AI生成猎人的决策过程
-        prompt = f"""
-        你是猎人，你被投票处决了，可以发动技能带走一名玩家。
-        当前存活的玩家有：{', '.join([c.name for c in targets])}
-        你决定带走{target.name}。
-        请简短描述你为什么选择带走这名玩家（不超过50字）。
-        """
+        # 使用新的提示词模板
+        prompt = HUNTER_SKILL_TEMPLATE.format(
+            alive_players=', '.join([c.name for c in targets]),
+            context=context
+        )
 
         try:
             ai_client = self.ai_clients.get(hunter.id)
             if ai_client:
-                response = ai_client.generate_response(prompt, hunter)
-                self.game.log(hunter.name, response)
+                # 获取猎人的决策
+                skill_decision = ai_client.generate_response(prompt, hunter).strip()
+
+                # 解析决策，找到对应的目标角色
+                target = None
+                for t in targets:
+                    if t.name in skill_decision:
+                        target = t
+                        break
+
+                # 如果无法解析或没有找到匹配的目标，随机选择一个
+                if not target:
+                    target = random.choice(targets)
+                    print(f"警告: {hunter.name}的技能决策'{skill_decision}'无法解析，随机选择了{target.name}")
+
+                target.alive = False
+                self.game.log(hunter.name, f"猎人带走了{target.name}")
+                self.emit_game_update(f"猎人带走了{target.name}")
+
+                # 生成决策理由
+                reason_prompt = HUNTER_SKILL_REASON_TEMPLATE.format(target=target.name)
+
+                try:
+                    skill_reason = ai_client.generate_response(reason_prompt, hunter)
+                    self.game.log(hunter.name, skill_reason)
+                except Exception as e:
+                    print(f"生成猎人决策理由失败: {str(e)}")
         except Exception as e:
             print(f"生成猎人决策失败: {str(e)}")
+            # 出错时随机选择
+            target = random.choice(targets)
+            target.alive = False
+            self.game.log(hunter.name, f"猎人带走了{target.name}")
+            self.emit_game_update(f"猎人带走了{target.name}")
 
     def build_character_context(self, character):
         """
@@ -849,25 +811,11 @@ class GameEngine:
         Returns:
             str: 角色上下文信息
         """
-        context = f"你的角色信息：\n- 姓名：{character.name}\n- 性别：{character.gender}\n- 性格：{character.style}\n"
+        # 获取角色描述
+        role_description = ROLE_DESCRIPTIONS.get(character.role, ROLE_DESCRIPTIONS["villager"])
 
-        if character.role == "werewolf":
-            # 狼人知道其他狼人
-            werewolves = [c.name for c in self.game.get_werewolves() if c.id != character.id]
-            context += f"- 你是狼人，你的同伴是：{', '.join(werewolves) if werewolves else '没有其他狼人'}\n"
-            context += "- 你的目标是消灭所有好人\n"
-        elif character.role == "seer":
-            context += "- 你是预言家，你可以查验玩家的身份\n"
-            # 添加预言家的查验历史
-            # 这里需要实现查验历史的记录和获取
-        elif character.role == "witch":
-            context += "- 你是女巫，你有一瓶解药和一瓶毒药\n"
-            # 添加女巫的使用药水历史
-        elif character.role == "guard":
-            context += "- 你是守卫，你可以保护一名玩家不被狼人杀害\n"
-            # 添加守卫的保护历史
-        else:
-            context += "- 你是普通村民，你的目标是找出并消灭所有狼人\n"
+        context = f"你的角色信息：\n- 姓名：{character.name}\n- 性别：{character.gender}\n- 性格：{character.style}\n"
+        context += f"{role_description}\n"
 
         # 添加角色记忆摘要
         memory_summary = character.get_memory_summary()
