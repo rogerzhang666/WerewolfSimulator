@@ -200,7 +200,7 @@ class GameEngine:
                 ai_client = self.ai_clients.get(werewolf.id)
                 if ai_client:
                     # 获取狼人的击杀决策
-                    kill_decision = ai_client.generate_response(prompt, werewolf).strip()
+                    kill_decision = ai_client.generate_response(prompt, werewolf, "werewolf_kill").strip()
 
                     # 解析击杀决策，找到对应的目标角色
                     target = None
@@ -223,7 +223,7 @@ class GameEngine:
                     reason_prompt = WEREWOLF_KILL_REASON_TEMPLATE.format(target=target.name)
 
                     try:
-                        kill_reason = ai_client.generate_response(reason_prompt, werewolf)
+                        kill_reason = ai_client.generate_response(reason_prompt, werewolf, "werewolf_kill_reason")
                         wolf_reasons[target.name] = kill_reason
 
                         # 更新狼人记忆
@@ -297,7 +297,7 @@ class GameEngine:
             ai_client = self.ai_clients.get(seer.id)
             if ai_client:
                 # 获取预言家的查验决策
-                check_decision = ai_client.generate_response(prompt, seer).strip()
+                check_decision = ai_client.generate_response(prompt, seer, "seer_check").strip()
 
                 # 解析查验决策，找到对应的目标角色
                 target = None
@@ -325,7 +325,7 @@ class GameEngine:
                 reason_prompt = SEER_CHECK_REASON_TEMPLATE.format(target=target.name, result=result)
 
                 try:
-                    check_reason = ai_client.generate_response(reason_prompt, seer)
+                    check_reason = ai_client.generate_response(reason_prompt, seer, "seer_check_reason")
                     self.game.log(seer.name, check_reason)
 
                     # 更新决策原因
@@ -370,7 +370,7 @@ class GameEngine:
                 ai_client = self.ai_clients.get(witch.id)
                 if ai_client:
                     # 获取女巫的救人决策
-                    save_decision = ai_client.generate_response(save_prompt, witch).strip().lower()
+                    save_decision = ai_client.generate_response(save_prompt, witch, "witch_save").strip().lower()
 
                     # 解析救人决策
                     use_save = "救" in save_decision
@@ -387,7 +387,7 @@ class GameEngine:
                         reason_prompt = WITCH_SAVE_REASON_TEMPLATE.format(target=killed.name)
 
                         try:
-                            save_reason = ai_client.generate_response(reason_prompt, witch)
+                            save_reason = ai_client.generate_response(reason_prompt, witch, "witch_save_reason")
                             self.game.log(witch.name, save_reason)
 
                             # 更新决策原因
@@ -417,7 +417,7 @@ class GameEngine:
                 ai_client = self.ai_clients.get(witch.id)
                 if ai_client:
                     # 获取女巫的毒人决策
-                    poison_decision = ai_client.generate_response(poison_prompt, witch).strip()
+                    poison_decision = ai_client.generate_response(poison_prompt, witch, "witch_poison").strip()
 
                     # 解析毒人决策
                     if "不使用" not in poison_decision:
@@ -451,7 +451,7 @@ class GameEngine:
                                 reason_prompt = WITCH_POISON_REASON_TEMPLATE.format(target=target.name)
 
                                 try:
-                                    poison_reason = ai_client.generate_response(reason_prompt, witch)
+                                    poison_reason = ai_client.generate_response(reason_prompt, witch, "witch_poison_reason")
                                     self.game.log(witch.name, poison_reason)
 
                                     # 更新决策原因
@@ -494,7 +494,7 @@ class GameEngine:
             ai_client = self.ai_clients.get(guard.id)
             if ai_client:
                 # 获取守卫的保护决策
-                protect_decision = ai_client.generate_response(prompt, guard).strip()
+                protect_decision = ai_client.generate_response(prompt, guard, "guard_protect").strip()
 
                 # 解析保护决策，找到对应的目标角色
                 target = None
@@ -532,7 +532,7 @@ class GameEngine:
                 reason_prompt = GUARD_PROTECT_REASON_TEMPLATE.format(target=target.name)
 
                 try:
-                    protect_reason = ai_client.generate_response(reason_prompt, guard)
+                    protect_reason = ai_client.generate_response(reason_prompt, guard, "guard_protect_reason")
                     self.game.log(guard.name, protect_reason)
 
                     # 更新决策原因
@@ -633,7 +633,7 @@ class GameEngine:
             try:
                 ai_client = self.ai_clients.get(character.id)
                 if ai_client:
-                    response = ai_client.generate_response(prompt, character)
+                    response = ai_client.generate_response(prompt, character, "discussion")
 
                     # 记录角色发言到游戏日志
                     self.game.log(character.name, response)
@@ -694,7 +694,7 @@ class GameEngine:
                 ai_client = self.ai_clients.get(voter.id)
                 if ai_client:
                     # 获取AI的投票决策
-                    vote_decision = ai_client.generate_response(prompt, voter).strip()
+                    vote_decision = ai_client.generate_response(prompt, voter, "vote").strip()
 
                     # 解析投票决策，找到对应的目标角色
                     target = None
@@ -727,7 +727,7 @@ class GameEngine:
                     reason_prompt = VOTE_REASON_TEMPLATE.format(target=target.name)
 
                     try:
-                        vote_reason = ai_client.generate_response(reason_prompt, voter)
+                         vote_reason = ai_client.generate_response(reason_prompt, voter, "vote_reason")
                         self.game.log(voter.name, vote_reason)
 
                         # 更新投票记忆
@@ -805,7 +805,7 @@ class GameEngine:
             ai_client = self.ai_clients.get(hunter.id)
             if ai_client:
                 # 获取猎人的决策
-                skill_decision = ai_client.generate_response(prompt, hunter).strip()
+                skill_decision = ai_client.generate_response(prompt, hunter, "hunter_skill").strip()
 
                 # 解析决策，找到对应的目标角色
                 target = None
@@ -827,7 +827,7 @@ class GameEngine:
                 reason_prompt = HUNTER_SKILL_REASON_TEMPLATE.format(target=target.name)
 
                 try:
-                    skill_reason = ai_client.generate_response(reason_prompt, hunter)
+                    skill_reason = ai_client.generate_response(reason_prompt, hunter, "hunter_skill_reason")
                     self.game.log(hunter.name, skill_reason)
                 except Exception as e:
                     print(f"生成猎人决策理由失败: {str(e)}")

@@ -491,6 +491,64 @@ footer a:hover {
     font-style: italic;
 }
 
+/* AI调用记录样式 */
+.ai-call-item {
+    background-color: white;
+    padding: 15px;
+    margin-bottom: 15px;
+    border-radius: 6px;
+    border-left: 4px solid #9b59b6;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.ai-call-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.ai-call-header h4 {
+    margin: 0;
+    color: #9b59b6;
+    font-size: 16px;
+}
+
+.ai-call-input,
+.ai-call-output {
+    margin-bottom: 15px;
+}
+
+.ai-call-input h5,
+.ai-call-output h5 {
+    margin: 0 0 8px 0;
+    color: #34495e;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.prompt-content,
+.response-content {
+    background-color: #f8f9fa;
+    padding: 12px;
+    border-radius: 4px;
+    border: 1px solid #e9ecef;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.response-content {
+    background-color: #fff3cd;
+    border-color: #ffeaa7;
+}
+
 /* 响应式设计 */
 @media (max-width: 600px) {
     .modal-content {
@@ -505,5 +563,17 @@ footer a:hover {
     .tab-button {
         flex: 1;
         min-width: 80px;
+    }
+
+    .ai-call-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
+
+    .prompt-content,
+    .response-content {
+        font-size: 11px;
+        max-height: 150px;
     }
 }

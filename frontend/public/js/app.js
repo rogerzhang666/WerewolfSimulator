@@ -346,6 +346,33 @@ function displayMemoryModal(memoryData) {
         beliefsSec.innerHTML = '<div class="empty-state">暂无信念记录</div>';
     }
 
+    // 填充AI调用记录
+    const aiCallsSec = document.getElementById('memoryAiCalls');
+    if (memoryData.memory.ai_calls && memoryData.memory.ai_calls.length > 0) {
+        aiCallsSec.innerHTML = memoryData.memory.ai_calls.map(call => `
+            <div class="ai-call-item">
+                <div class="ai-call-header">
+                    <h4>${getCallTypeText(call.call_type)} - ${call.model}</h4>
+                    <span class="timestamp">${call.timestamp}</span>
+                </div>
+                <div class="ai-call-input">
+                    <h5>系统提示词：</h5>
+                    <div class="prompt-content">${escapeHtml(call.input.system_prompt)}</div>
+                </div>
+                <div class="ai-call-input">
+                    <h5>用户提示词：</h5>
+                    <div class="prompt-content">${escapeHtml(call.input.user_prompt)}</div>
+                </div>
+                <div class="ai-call-output">
+                    <h5>AI输出：</h5>
+                    <div class="response-content">${escapeHtml(call.output)}</div>
+                </div>
+            </div>
+        `).join('');
+    } else {
+        aiCallsSec.innerHTML = '<div class="empty-state">暂无AI调用记录</div>';
+    }
+
     modal.style.display = 'block';
 }
 
@@ -458,6 +485,37 @@ function getSourceClass(source) {
     }
 
     return 'villager'; // 默认样式
+}
+
+// 获取调用类型文本
+function getCallTypeText(callType) {
+    const typeMap = {
+        'werewolf_kill': '狼人击杀',
+        'werewolf_kill_reason': '狼人击杀理由',
+        'seer_check': '预言家查验',
+        'seer_check_reason': '预言家查验理由',
+        'witch_save': '女巫救人',
+        'witch_save_reason': '女巫救人理由',
+        'witch_poison': '女巫毒人',
+        'witch_poison_reason': '女巫毒人理由',
+        'guard_protect': '守卫保护',
+        'guard_protect_reason': '守卫保护理由',
+        'discussion': '讨论发言',
+        'vote': '投票决策',
+        'vote_reason': '投票理由',
+        'hunter_skill': '猎人技能',
+        'hunter_skill_reason': '猎人技能理由',
+        'general': '一般调用'
+    };
+    return typeMap[callType] || callType;
+}
+
+// HTML转义函数
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML.replace(/\n/g, '<br>');
 }
 
 // 初始化：获取当前游戏状态

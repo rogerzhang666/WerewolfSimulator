@@ -163,7 +163,8 @@ def get_character_memory(character_name):
                 "observations": character.memory.get("observations", []),
                 "statements": character.memory.get("statements", []),
                 "beliefs": character.memory.get("beliefs", {}),
-                "votes": character.memory.get("votes", [])
+                "votes": character.memory.get("votes", []),
+                "ai_calls": character.memory.get("ai_calls", [])
             },
             "memory_summary": character.get_memory_summary()
         }
