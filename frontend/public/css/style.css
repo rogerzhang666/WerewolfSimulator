@@ -1,0 +1,323 @@
+/* 全局样式 */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Microsoft YaHei', Arial, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background-color: #f4f4f4;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* 头部样式 */
+header {
+    background-color: #2c3e50;
+    color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+header h1 {
+    margin: 0;
+}
+
+.game-controls {
+    display: flex;
+    gap: 10px;
+}
+
+/* 按钮样式 */
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background-color 0.3s;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background-color: #3498db;
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: #2980b9;
+}
+
+.btn-warning {
+    background-color: #f39c12;
+    color: white;
+}
+
+.btn-warning:hover:not(:disabled) {
+    background-color: #d35400;
+}
+
+.btn-success {
+    background-color: #2ecc71;
+    color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+    background-color: #27ae60;
+}
+
+.btn-danger {
+    background-color: #e74c3c;
+    color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background-color: #c0392b;
+}
+
+/* 主要内容样式 */
+main {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+}
+
+.game-status {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 20px;
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.status-info h2,
+.game-message h3 {
+    margin-bottom: 15px;
+    color: #2c3e50;
+}
+
+.message-box {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 15px;
+    height: 100px;
+    overflow-y: auto;
+}
+
+/* 角色信息样式 */
+.characters-container {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.characters-container h2 {
+    margin-bottom: 15px;
+    color: #2c3e50;
+}
+
+.characters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 15px;
+}
+
+.character-card {
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    position: relative;
+}
+
+.character-card.dead {
+    opacity: 0.6;
+}
+
+.character-card.dead::after {
+    content: "已死亡";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-30deg);
+    background-color: rgba(231, 76, 60, 0.8);
+    color: white;
+    padding: 5px 10px;
+    border-radius: 3px;
+    font-weight: bold;
+}
+
+.character-name {
+    font-weight: bold;
+    font-size: 1.2em;
+    margin-bottom: 5px;
+    color: #2c3e50;
+}
+
+.character-role {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 0.9em;
+    margin-bottom: 10px;
+}
+
+.role-werewolf {
+    background-color: #e74c3c;
+    color: white;
+}
+
+.role-seer {
+    background-color: #3498db;
+    color: white;
+}
+
+.role-witch {
+    background-color: #9b59b6;
+    color: white;
+}
+
+.role-guard {
+    background-color: #2ecc71;
+    color: white;
+}
+
+.role-hunter {
+    background-color: #f39c12;
+    color: white;
+}
+
+.role-villager {
+    background-color: #95a5a6;
+    color: white;
+}
+
+.character-info {
+    font-size: 0.9em;
+    color: #666;
+}
+
+/* 游戏日志样式 */
+.game-logs {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.game-logs h2 {
+    margin-bottom: 15px;
+    color: #2c3e50;
+}
+
+.logs-container {
+    height: 300px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 10px;
+    background-color: #f8f9fa;
+}
+
+.log-entry {
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-time {
+    color: #666;
+    font-size: 0.8em;
+}
+
+.log-source {
+    font-weight: bold;
+    margin-right: 5px;
+}
+
+.log-source-system {
+    color: #3498db;
+}
+
+.log-source-werewolf {
+    color: #e74c3c;
+}
+
+.log-source-seer {
+    color: #3498db;
+}
+
+.log-source-witch {
+    color: #9b59b6;
+}
+
+.log-source-guard {
+    color: #2ecc71;
+}
+
+.log-source-hunter {
+    color: #f39c12;
+}
+
+.log-source-villager {
+    color: #95a5a6;
+}
+
+.log-message {
+    color: #333;
+}
+
+/* 页脚样式 */
+footer {
+    margin-top: 30px;
+    text-align: center;
+    color: #666;
+    font-size: 0.9em;
+}
+
+footer a {
+    color: #3498db;
+    text-decoration: none;
+}
+
+footer a:hover {
+    text-decoration: underline;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    header {
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .game-status {
+        grid-template-columns: 1fr;
+    }
+
+    .characters-grid {
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    }
+}

@@ -1,0 +1,34 @@
+{
+  "server": {
+    "port": 5000,
+    "debug": true,
+    "secret_key": "default_secret_key_change_in_production"
+  },
+  "database": {
+    "type": "sqlite",
+    "path": "./data/werewolf.db"
+  },
+  "game": {
+    "players": 8,
+    "roles": {
+      "werewolf": 2,
+      "villager": 4,
+      "seer": 1,
+      "witch": 1
+    },
+    "phases": {
+      "night_duration": 60,
+      "discussion_duration": 180,
+      "vote_duration": 60
+    }
+  },
+  "ai": {
+    "default_model": "deepseek-R1",
+    "available_models": ["deepseek-R1", "qwen"],
+    "temperature": 0.7,
+    "max_tokens": 500
+  },
+  "frontend": {
+    "url": "http://localhost:3000"
+  }
+}

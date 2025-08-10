@@ -1,0 +1,66 @@
+[
+  {
+    "id": 1,
+    "name": "张三",
+    "gender": "男",
+    "style": "激进",
+    "model": "deepseek-chat",
+    "role": ""
+  },
+  {
+    "id": 2,
+    "name": "李四",
+    "gender": "女",
+    "style": "保守",
+    "model": "deepseek-chat",
+    "role": ""
+  },
+  {
+    "id": 3,
+    "name": "王五",
+    "gender": "男",
+    "style": "理性",
+    "model": "deepseek-chat",
+    "role": ""
+  },
+  {
+    "id": 4,
+    "name": "赵六",
+    "gender": "女",
+    "style": "情绪化",
+    "model": "deepseek-chat",
+    "role": ""
+  },
+  {
+    "id": 5,
+    "name": "钱七",
+    "gender": "男",
+    "style": "冷静",
+    "model": "deepseek-chat",
+    "role": ""
+  },
+  {
+    "id": 6,
+    "name": "孙八",
+    "gender": "女",
+    "style": "多疑",
+    "model": "deepseek-chat",
+    "role": ""
+  },
+  {
+    "id": 7,
+    "name": "周九",
+    "gender": "男",
+    "style": "沉默",
+    "model": "deepseek-chat",
+    "role": ""
+  },
+  {
+    "id": 8,
+    "name": "吴十",
+    "gender": "女",
+    "style": "活跃",
+    "model": "deepseek-chat",
+    "role": ""
+  }
+]
