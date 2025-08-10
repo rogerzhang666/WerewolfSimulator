@@ -48,6 +48,42 @@
         </footer>
     </div>
 
+    <!-- 记忆浮窗 -->
+    <div id="memoryModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>角色记忆 - <span id="memoryCharacterName"></span></h3>
+                <span class="close" id="closeMemoryModal">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="memory-tabs">
+                    <button class="tab-button active" data-tab="summary">记忆摘要</button>
+                    <button class="tab-button" data-tab="decisions">决策记录</button>
+                    <button class="tab-button" data-tab="observations">观察记录</button>
+                    <button class="tab-button" data-tab="statements">发言记录</button>
+                    <button class="tab-button" data-tab="beliefs">信念记录</button>
+                </div>
+                <div class="memory-content">
+                    <div id="memoryTab-summary" class="tab-content active">
+                        <div id="memorySummary" class="memory-section"></div>
+                    </div>
+                    <div id="memoryTab-decisions" class="tab-content">
+                        <div id="memoryDecisions" class="memory-section"></div>
+                    </div>
+                    <div id="memoryTab-observations" class="tab-content">
+                        <div id="memoryObservations" class="memory-section"></div>
+                    </div>
+                    <div id="memoryTab-statements" class="tab-content">
+                        <div id="memoryStatements" class="memory-section"></div>
+                    </div>
+                    <div id="memoryTab-beliefs" class="tab-content">
+                        <div id="memoryBeliefs" class="memory-section"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="js/lib/socket.io.min.js"></script>
     <script src="js/app.js"></script>
 </body>

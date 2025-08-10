@@ -136,6 +136,42 @@ def get_game_state():
     except Exception as e:
         return jsonify({"status": "error", "message": f"获取游戏状态失败: {str(e)}"})
 
+@app.route('/api/character/memory/<character_name>', methods=['GET'])
+def get_character_memory(character_name):
+    """获取角色记忆信息（用于调试）"""
+    try:
+        if not game_engine.game:
+            return jsonify({"status": "error", "message": "游戏未初始化"})
+
+        # 查找角色
+        character = None
+        for char in game_engine.game.characters:
+            if char.name == character_name:
+                character = char
+                break
+
+        if not character:
+            return jsonify({"status": "error", "message": f"未找到角色: {character_name}"})
+
+        # 获取角色记忆信息
+        memory_data = {
+            "name": character.name,
+            "role": character.role,
+            "alive": character.alive,
+            "memory": {
+                "decisions": character.memory.get("decisions", []),
+                "observations": character.memory.get("observations", []),
+                "statements": character.memory.get("statements", []),
+                "beliefs": character.memory.get("beliefs", {}),
+                "votes": character.memory.get("votes", [])
+            },
+            "memory_summary": character.get_memory_summary()
+        }
+
+        return jsonify({"status": "success", "data": memory_data})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"获取角色记忆失败: {str(e)}"})
+
 # WebSocket事件
 @socketio.on('connect')
 def handle_connect():

@@ -291,10 +291,12 @@ main {
 
 /* 页脚样式 */
 footer {
-    margin-top: 30px;
     text-align: center;
-    color: #666;
-    font-size: 0.9em;
+    padding: 20px;
+    background-color: #34495e;
+    color: #ecf0f1;
+    border-radius: 5px;
+    margin-top: 20px;
 }
 
 footer a {
@@ -303,21 +305,205 @@ footer a {
 }
 
 footer a:hover {
-    text-decoration: underline;
+    color: #2980b9;
+}
+
+/* 记忆按钮样式 */
+.memory-btn {
+    background-color: #9b59b6;
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+    margin-left: 10px;
+    transition: background-color 0.3s;
+}
+
+.memory-btn:hover {
+    background-color: #8e44ad;
+}
+
+/* 浮窗样式 */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 5% auto;
+    padding: 0;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    width: 80%;
+    max-width: 800px;
+    max-height: 80vh;
+    overflow: hidden;
+}
+
+.modal-header {
+    background-color: #34495e;
+    color: white;
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h3 {
+    margin: 0;
+}
+
+.close {
+    color: #aaa;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.close:hover,
+.close:focus {
+    color: white;
+    text-decoration: none;
+}
+
+.modal-body {
+    padding: 20px;
+    max-height: calc(80vh - 80px);
+    overflow-y: auto;
+}
+
+/* 标签页样式 */
+.memory-tabs {
+    display: flex;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 20px;
+}
+
+.tab-button {
+    background-color: transparent;
+    border: none;
+    padding: 10px 15px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.3s;
+}
+
+.tab-button:hover {
+    background-color: #f8f9fa;
+}
+
+.tab-button.active {
+    border-bottom-color: #3498db;
+    color: #3498db;
+    font-weight: bold;
+}
+
+/* 标签内容样式 */
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.memory-section {
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 10px;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    background-color: #fafafa;
+}
+
+/* 记忆项样式 */
+.memory-item {
+    background-color: white;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    border-left: 4px solid #3498db;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.memory-item h4 {
+    margin: 0 0 5px 0;
+    color: #2c3e50;
+    font-size: 14px;
+}
+
+.memory-item p {
+    margin: 0;
+    color: #555;
+    font-size: 13px;
+}
+
+.memory-item .timestamp {
+    color: #888;
+    font-size: 12px;
+    font-style: italic;
+}
+
+/* 信念记录特殊样式 */
+.belief-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    background-color: white;
+    margin-bottom: 5px;
+    border-radius: 4px;
+    border-left: 4px solid #e67e22;
+}
+
+.belief-target {
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.belief-description {
+    color: #555;
+    margin: 0 10px;
+}
+
+.belief-confidence {
+    background-color: #e67e22;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+}
+
+/* 空状态样式 */
+.empty-state {
+    text-align: center;
+    color: #888;
+    padding: 40px 20px;
+    font-style: italic;
 }
 
 /* 响应式设计 */
-@media (max-width: 768px) {
-    header {
-        flex-direction: column;
-        gap: 15px;
+@media (max-width: 600px) {
+    .modal-content {
+        width: 95%;
+        margin: 10px auto;
     }
 
-    .game-status {
-        grid-template-columns: 1fr;
+    .memory-tabs {
+        flex-wrap: wrap;
     }
 
-    .characters-grid {
-        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    .tab-button {
+        flex: 1;
+        min-width: 80px;
     }
 }

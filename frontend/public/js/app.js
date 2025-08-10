@@ -220,6 +220,12 @@ function renderLogs() {
         time.textContent = `[${log.timestamp}] [${log.day}天-${log.phase}]`;
 
         const content = document.createElement('div');
+        content.style.display = 'flex';
+        content.style.alignItems = 'center';
+        content.style.justifyContent = 'space-between';
+
+        const messageContainer = document.createElement('div');
+        messageContainer.style.flex = '1';
 
         const source = document.createElement('span');
         source.className = `log-source log-source-${getSourceClass(log.source)}`;
@@ -229,8 +235,19 @@ function renderLogs() {
         message.className = 'log-message';
         message.textContent = log.message;
 
-        content.appendChild(source);
-        content.appendChild(message);
+        messageContainer.appendChild(source);
+        messageContainer.appendChild(message);
+
+        content.appendChild(messageContainer);
+
+        // 添加记忆按钮（只为非系统消息添加）
+        if (log.source !== '系统') {
+            const memoryBtn = document.createElement('button');
+            memoryBtn.className = 'memory-btn';
+            memoryBtn.textContent = '记忆';
+            memoryBtn.onclick = () => showCharacterMemory(log.source);
+            content.appendChild(memoryBtn);
+        }
 
         entry.appendChild(time);
         entry.appendChild(content);
@@ -240,6 +257,120 @@ function renderLogs() {
 
     // 滚动到底部
     elements.gameLogs.scrollTop = elements.gameLogs.scrollHeight;
+}
+
+// 显示角色记忆
+async function showCharacterMemory(characterName) {
+    try {
+        const response = await fetch(`/api/character/memory/${encodeURIComponent(characterName)}`);
+        const data = await response.json();
+
+        if (data.status === 'success') {
+            displayMemoryModal(data.data);
+        } else {
+            addMessage(`获取角色记忆失败: ${data.message}`);
+        }
+    } catch (error) {
+        console.error('获取角色记忆失败:', error);
+        addMessage(`获取角色记忆失败: ${error.message}`);
+    }
+}
+
+// 显示记忆浮窗
+function displayMemoryModal(memoryData) {
+    const modal = document.getElementById('memoryModal');
+    const characterNameSpan = document.getElementById('memoryCharacterName');
+
+    characterNameSpan.textContent = `${memoryData.name} (${getRoleText(memoryData.role)})`;
+
+    // 填充记忆摘要
+    const summarySec = document.getElementById('memorySummary');
+    summarySec.innerHTML = memoryData.memory_summary ?
+        `<div class="memory-item"><p>${memoryData.memory_summary.replace(/\n/g, '<br>')}</p></div>` :
+        '<div class="empty-state">暂无记忆摘要</div>';
+
+    // 填充决策记录
+    const decisionsSec = document.getElementById('memoryDecisions');
+    if (memoryData.memory.decisions && memoryData.memory.decisions.length > 0) {
+        decisionsSec.innerHTML = memoryData.memory.decisions.map(decision => `
+            <div class="memory-item">
+                <h4>第${decision.day}天 - ${decision.type.toUpperCase()}</h4>
+                <p><strong>目标:</strong> ${decision.target || '无'}</p>
+                <p><strong>理由:</strong> ${decision.reason || '无理由记录'}</p>
+                <p class="timestamp">阶段: ${decision.phase}</p>
+            </div>
+        `).join('');
+    } else {
+        decisionsSec.innerHTML = '<div class="empty-state">暂无决策记录</div>';
+    }
+
+    // 填充观察记录
+    const observationsSec = document.getElementById('memoryObservations');
+    if (memoryData.memory.observations && memoryData.memory.observations.length > 0) {
+        observationsSec.innerHTML = memoryData.memory.observations.map(obs => `
+            <div class="memory-item">
+                <h4>第${obs.day}天观察</h4>
+                <p>${obs.content}</p>
+                <p class="timestamp">阶段: ${obs.phase}</p>
+            </div>
+        `).join('');
+    } else {
+        observationsSec.innerHTML = '<div class="empty-state">暂无观察记录</div>';
+    }
+
+    // 填充发言记录
+    const statementsSec = document.getElementById('memoryStatements');
+    if (memoryData.memory.statements && memoryData.memory.statements.length > 0) {
+        statementsSec.innerHTML = memoryData.memory.statements.map(stmt => `
+            <div class="memory-item">
+                <h4>第${stmt.day}天发言</h4>
+                <p>${stmt.content}</p>
+                <p class="timestamp">阶段: ${stmt.phase}</p>
+            </div>
+        `).join('');
+    } else {
+        statementsSec.innerHTML = '<div class="empty-state">暂无发言记录</div>';
+    }
+
+    // 填充信念记录
+    const beliefsSec = document.getElementById('memoryBeliefs');
+    if (memoryData.memory.beliefs && Object.keys(memoryData.memory.beliefs).length > 0) {
+        beliefsSec.innerHTML = Object.entries(memoryData.memory.beliefs).map(([target, belief]) => `
+            <div class="belief-item">
+                <span class="belief-target">${target}</span>
+                <span class="belief-description">${belief.description}</span>
+                <span class="belief-confidence">${Math.round(belief.confidence * 100)}%</span>
+            </div>
+        `).join('');
+    } else {
+        beliefsSec.innerHTML = '<div class="empty-state">暂无信念记录</div>';
+    }
+
+    modal.style.display = 'block';
+}
+
+// 关闭记忆浮窗
+function closeMemoryModal() {
+    document.getElementById('memoryModal').style.display = 'none';
+}
+
+// 切换记忆标签页
+function switchMemoryTab(tabName) {
+    // 隐藏所有标签内容
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+
+    // 移除所有按钮的激活状态
+    document.querySelectorAll('.tab-button').forEach(button => {
+        button.classList.remove('active');
+    });
+
+    // 显示选中的标签内容
+    document.getElementById(`memoryTab-${tabName}`).classList.add('active');
+
+    // 激活选中的按钮
+    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
 }
 
 // 更新按钮状态
@@ -360,4 +491,28 @@ function initializeGame() {
 }
 
 // 页面加载完成后初始化
-document.addEventListener('DOMContentLoaded', initializeGame);
+document.addEventListener('DOMContentLoaded', () => {
+    initializeGame();
+
+    // 绑定记忆浮窗事件
+    document.getElementById('closeMemoryModal').onclick = closeMemoryModal;
+
+    // 点击浮窗外部关闭浮窗
+    document.getElementById('memoryModal').onclick = function(event) {
+        if (event.target === this) {
+            closeMemoryModal();
+        }
+    };
+
+    // 绑定标签页切换事件
+    document.querySelectorAll('.tab-button').forEach(button => {
+        button.onclick = () => switchMemoryTab(button.dataset.tab);
+    });
+
+    // ESC键关闭浮窗
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closeMemoryModal();
+        }
+    });
+});
