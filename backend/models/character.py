@@ -27,10 +27,11 @@ class Character:
         self.alive = True
         self.history = []  # 角色行为历史
         self.memory = {    # 角色记忆系统
-            "observations": [],  # 观察到的事件
-            "beliefs": {},       # 对其他角色的看法
-            "decisions": [],     # 做出的决策
-            "statements": []     # 发表的言论
+            "observations": [],     # 观察到的事件
+            "beliefs": {},          # 对其他角色的看法
+            "decisions": [],        # 做出的决策
+            "statements": [],       # 发表的公开言论
+            "inner_thoughts": []    # 内心想法（不公开）
         }
 
     def to_dict(self):
@@ -108,7 +109,7 @@ class Character:
 
     def add_statement(self, content, day, phase):
         """
-        记录角色发表的言论
+        记录角色发表的公开言论
 
         Args:
             content (str): 言论内容
@@ -122,6 +123,25 @@ class Character:
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         self.memory["statements"].append(statement)
+
+    def add_inner_thought(self, content, day, phase, thought_type="general"):
+        """
+        记录角色内心想法（不公开）
+
+        Args:
+            content (str): 内心想法内容
+            day (int): 游戏天数
+            phase (str): 游戏阶段
+            thought_type (str): 想法类型（如"decision_reason", "action_reason"等）
+        """
+        inner_thought = {
+            "content": content,
+            "day": day,
+            "phase": phase,
+            "type": thought_type,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        self.memory["inner_thoughts"].append(inner_thought)
 
     def update_belief(self, target_name, belief, confidence=0.5):
         """
@@ -177,7 +197,7 @@ class Character:
 
     def get_recent_statements(self, count=3):
         """
-        获取最近的发言记录
+        获取最近的公开发言记录
 
         Args:
             count (int, optional): 记录数量. 默认为3.
@@ -186,6 +206,22 @@ class Character:
             list: 最近的发言记录列表
         """
         return self.memory["statements"][-count:] if self.memory["statements"] else []
+
+    def get_recent_inner_thoughts(self, count=5, thought_type=None):
+        """
+        获取最近的内心想法记录
+
+        Args:
+            count (int, optional): 记录数量. 默认为5.
+            thought_type (str, optional): 想法类型过滤. 默认为None（获取所有类型）.
+
+        Returns:
+            list: 最近的内心想法记录列表
+        """
+        thoughts = self.memory["inner_thoughts"]
+        if thought_type:
+            thoughts = [t for t in thoughts if t.get("type") == thought_type]
+        return thoughts[-count:] if thoughts else []
 
     def get_beliefs_summary(self):
         """

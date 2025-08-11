@@ -125,7 +125,7 @@ class Game:
 
         return False
 
-    def log(self, source, message, phase=None, is_public=True):
+    def log(self, source, message, phase=None, is_public=True, message_type="system"):
         """
         记录游戏日志
 
@@ -134,6 +134,11 @@ class Game:
             message (str): 消息内容
             phase (str, optional): 游戏阶段. 默认为None.
             is_public (bool, optional): 是否为公开信息. 默认为True.
+            message_type (str, optional): 消息类型. 可选值:
+                - "system": 系统信息
+                - "public_statement": 公开发言
+                - "inner_thought": 内心想法
+                - "action": 角色行动
         """
         log_entry = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -141,7 +146,8 @@ class Game:
             "phase": phase or self.phase.value,
             "source": source,
             "message": message,
-            "is_public": is_public
+            "is_public": is_public,
+            "message_type": message_type
         }
         self.logs.append(log_entry)
 

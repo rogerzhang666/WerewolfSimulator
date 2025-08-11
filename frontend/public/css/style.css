@@ -453,6 +453,54 @@ footer a:hover {
     font-style: italic;
 }
 
+/* 内心想法特殊样式 */
+.inner-thought-item {
+    background: linear-gradient(135deg, #f8f9fa 0%, #fff3e0 100%);
+    border-left: 4px solid #ff9800;
+}
+
+.thought-type {
+    color: #ff9800;
+    font-size: 12px;
+    font-weight: normal;
+    background: rgba(255, 152, 0, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-left: 8px;
+}
+
+.inner-thought-content {
+    font-style: italic;
+    color: #5d4037;
+    background: rgba(255, 152, 0, 0.05);
+    padding: 8px;
+    border-radius: 4px;
+    margin: 5px 0;
+}
+
+/* 发言前分析特殊样式 */
+.pre-speech-analysis {
+    background: linear-gradient(135deg, #e8f5e8 0%, #f0f8f0 100%);
+    border-left: 4px solid #4caf50;
+    border-top: 2px solid #4caf50;
+}
+
+.pre-speech-analysis .thought-type {
+    color: #4caf50;
+    background: rgba(76, 175, 80, 0.1);
+    font-weight: bold;
+}
+
+.pre-speech-analysis .inner-thought-content {
+    background: rgba(76, 175, 80, 0.05);
+    color: #2e7d32;
+    border: 1px solid rgba(76, 175, 80, 0.2);
+    white-space: pre-wrap;
+    line-height: 1.5;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
 /* 信念记录特殊样式 */
 .belief-item {
     display: flex;

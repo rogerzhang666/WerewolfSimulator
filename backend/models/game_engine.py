@@ -226,6 +226,14 @@ class GameEngine:
                         kill_reason = ai_client.generate_response(reason_prompt, werewolf, "werewolf_kill_reason")
                         wolf_reasons[target.name] = kill_reason
 
+                        # 将击杀理由记录为内心想法，不是公开发言
+                        werewolf.add_inner_thought(
+                            f"选择击杀{target.name}的理由：{kill_reason}",
+                            self.game.current_day,
+                            "werewolf",
+                            "kill_reason"
+                        )
+
                         # 更新狼人记忆
                         MemoryManager.update_werewolf_memory(werewolf, self.game, target, kill_reason)
                     except Exception as e:
@@ -326,7 +334,14 @@ class GameEngine:
 
                 try:
                     check_reason = ai_client.generate_response(reason_prompt, seer, "seer_check_reason")
-                    self.game.log(seer.name, check_reason, "seer", False)
+                    
+                    # 将查验理由记录为内心想法，不是公开发言
+                    seer.add_inner_thought(
+                        f"查验{target.name}的理由和感想：{check_reason}",
+                        self.game.current_day,
+                        "seer",
+                        "check_reason"
+                    )
 
                     # 更新决策原因
                     for decision in seer.memory["decisions"]:
@@ -388,7 +403,14 @@ class GameEngine:
 
                         try:
                             save_reason = ai_client.generate_response(reason_prompt, witch, "witch_save_reason")
-                            self.game.log(witch.name, save_reason, "witch", False)
+                            
+                            # 将救人理由记录为内心想法，不是公开发言
+                            witch.add_inner_thought(
+                                f"救{killed.name}的理由：{save_reason}",
+                                self.game.current_day,
+                                "witch",
+                                "save_reason"
+                            )
 
                             # 更新决策原因
                             for decision in witch.memory["decisions"]:
@@ -452,7 +474,14 @@ class GameEngine:
 
                                 try:
                                     poison_reason = ai_client.generate_response(reason_prompt, witch, "witch_poison_reason")
-                                    self.game.log(witch.name, poison_reason, "witch", False)
+                                    
+                                    # 将毒人理由记录为内心想法，不是公开发言
+                                    witch.add_inner_thought(
+                                        f"毒{target.name}的理由：{poison_reason}",
+                                        self.game.current_day,
+                                        "witch",
+                                        "poison_reason"
+                                    )
 
                                     # 更新决策原因
                                     for decision in witch.memory["decisions"]:
@@ -533,7 +562,14 @@ class GameEngine:
 
                 try:
                     protect_reason = ai_client.generate_response(reason_prompt, guard, "guard_protect_reason")
-                    self.game.log(guard.name, protect_reason, "guard", False)
+                    
+                    # 将保护理由记录为内心想法，不是公开发言
+                    guard.add_inner_thought(
+                        f"保护{target.name}的理由：{protect_reason}",
+                        self.game.current_day,
+                        "guard",
+                        "protect_reason"
+                    )
 
                     # 更新决策原因
                     for decision in guard.memory["decisions"]:
@@ -613,40 +649,32 @@ class GameEngine:
             if character.alive:
                 ordered_alive.append(character)
 
-        # 每个角色按新顺序发表言论
+        # 每个角色按新顺序发表言论（双阶段策略）
         for character in ordered_alive:
             # 构建角色的上下文信息
             context = self.build_character_context(character)
 
-            # 获取角色特定的讨论指导
-            role_guidance = ROLE_DISCUSSION_GUIDANCE.get(character.role, ROLE_DISCUSSION_GUIDANCE["villager"])
-
-            # 使用新的提示词模板
-            prompt = DISCUSSION_TEMPLATE.format(
-                day=self.game.current_day,
-                alive_players=', '.join([c.name for c in alive_characters]),
-                dead_players=', '.join([c.name for c in self.game.characters if not c.alive]),
-                context=context,
-                role_specific_guidance=role_guidance
-            )
-
             try:
                 ai_client = self.ai_clients.get(character.id)
                 if ai_client:
-                    response = ai_client.generate_response(prompt, character, "discussion")
+                    # 第一阶段：内心决策分析
+                    inner_decision = self.generate_inner_decision(character, context, alive_characters, ai_client)
+                    
+                    # 第二阶段：基于内心决策的公开发言
+                    public_speech = self.generate_public_speech(character, context, alive_characters, inner_decision, ai_client)
 
-                    # 记录角色发言到游戏日志
-                    self.game.log(character.name, response)
-                    self.emit_game_update(f"{character.name}发言: {response}")
+                    # 记录角色发言到游戏日志（公开发言）
+                    self.game.log(character.name, public_speech, message_type="public_statement")
+                    self.emit_game_update(f"{character.name}发言: {public_speech}")
 
                     # 更新角色记忆
-                    MemoryManager.update_discussion_memory(character, self.game, response, alive_characters)
+                    MemoryManager.update_discussion_memory(character, self.game, public_speech, alive_characters)
 
                     # 为其他角色添加观察记录
                     for observer in alive_characters:
                         if observer.id != character.id:
                             observer.add_observation(
-                                f"{character.name}说：{response}",
+                                f"{character.name}说：{public_speech}",
                                 self.game.current_day,
                                 "discussion"
                             )
@@ -655,6 +683,86 @@ class GameEngine:
             except Exception as e:
                 print(f"生成角色发言失败: {str(e)}")
                 self.game.log(character.name, "（发言系统故障）")
+
+    def generate_inner_decision(self, character, context, alive_characters, ai_client):
+        """
+        生成角色的内心决策分析
+        
+        Args:
+            character: 角色对象
+            context: 角色上下文信息
+            alive_characters: 存活角色列表
+            ai_client: AI客户端
+            
+        Returns:
+            str: 内心决策分析结果
+        """
+        # 获取角色特定的内心决策指导
+        role_inner_guidance = ROLE_INNER_DECISION_GUIDANCE.get(character.role, ROLE_INNER_DECISION_GUIDANCE["villager"])
+        
+        # 构建内心决策提示词
+        inner_prompt = DISCUSSION_INNER_DECISION_TEMPLATE.format(
+            day=self.game.current_day,
+            alive_players=', '.join([c.name for c in alive_characters]),
+            dead_players=', '.join([c.name for c in self.game.characters if not c.alive]),
+            context=context,
+            role_name=character.name,
+            role_inner_guidance=role_inner_guidance
+        )
+        
+        try:
+            # 生成内心决策
+            inner_decision = ai_client.generate_response(inner_prompt, character, "inner_decision")
+            
+            # 将内心决策记录为内心想法
+            character.add_inner_thought(
+                f"讨论前的内心分析：{inner_decision}",
+                self.game.current_day,
+                "discussion",
+                "pre_speech_analysis"
+            )
+            
+            return inner_decision
+        except Exception as e:
+            print(f"生成内心决策失败: {str(e)}")
+            return "（内心分析失败，将基于基础信息发言）"
+
+    def generate_public_speech(self, character, context, alive_characters, inner_decision, ai_client):
+        """
+        基于内心决策生成公开发言
+        
+        Args:
+            character: 角色对象
+            context: 角色上下文信息
+            alive_characters: 存活角色列表
+            inner_decision: 内心决策分析结果
+            ai_client: AI客户端
+            
+        Returns:
+            str: 公开发言内容
+        """
+        # 获取角色特定的讨论指导
+        role_guidance = ROLE_DISCUSSION_GUIDANCE.get(character.role, ROLE_DISCUSSION_GUIDANCE["villager"])
+        
+        # 构建内心决策摘要（截取关键部分，避免提示词过长）
+        inner_decision_summary = f"你的内心分析要点：\n{inner_decision[:500]}{'...' if len(inner_decision) > 500 else ''}"
+        
+        # 构建公开发言提示词
+        speech_prompt = DISCUSSION_PUBLIC_SPEECH_TEMPLATE.format(
+            inner_decision_summary=inner_decision_summary,
+            day=self.game.current_day,
+            alive_players=', '.join([c.name for c in alive_characters]),
+            dead_players=', '.join([c.name for c in self.game.characters if not c.alive]),
+            role_specific_guidance=role_guidance
+        )
+        
+        try:
+            # 生成公开发言
+            public_speech = ai_client.generate_response(speech_prompt, character, "public_speech")
+            return public_speech
+        except Exception as e:
+            print(f"生成公开发言失败: {str(e)}")
+            return "（发言系统故障，无法生成有效发言）"
 
     def handle_vote_phase(self):
         """处理投票阶段"""
@@ -720,7 +828,7 @@ class GameEngine:
                         self.game.votes[target.id] = 0
                     self.game.votes[target.id] += 1
 
-                    self.game.log(voter.name, f"投票给了{target.name}")
+                    self.game.log(voter.name, f"投票给了{target.name}", message_type="action")
                     self.emit_game_update(f"{voter.name}投票给了{target.name}")
 
                     # 生成投票理由
@@ -728,16 +836,23 @@ class GameEngine:
 
                     try:
                         vote_reason = ai_client.generate_response(reason_prompt, voter, "vote_reason")
-                        self.game.log(voter.name, vote_reason)
+                        
+                        # 将投票理由记录为内心想法，不是公开发言
+                        voter.add_inner_thought(
+                            f"投票给{target.name}的理由：{vote_reason}",
+                            self.game.current_day,
+                            "vote",
+                            "vote_reason"
+                        )
 
                         # 更新投票记忆
                         MemoryManager.update_vote_memory(voter, self.game, target, vote_reason)
 
-                        # 为其他角色添加观察记录
+                        # 为其他角色添加观察记录（只记录投票行为，不包含理由）
                         for observer in alive_characters:
                             if observer.id != voter.id:
                                 observer.add_observation(
-                                    f"{voter.name}投票给了{target.name}，理由：{vote_reason}",
+                                    f"{voter.name}投票给了{target.name}",
                                     self.game.current_day,
                                     "vote"
                                 )

@@ -318,18 +318,37 @@ function displayMemoryModal(memoryData) {
         observationsSec.innerHTML = '<div class="empty-state">暂无观察记录</div>';
     }
 
-    // 填充发言记录
+    // 填充发言记录（仅公开发言）
     const statementsSec = document.getElementById('memoryStatements');
     if (memoryData.memory.statements && memoryData.memory.statements.length > 0) {
         statementsSec.innerHTML = memoryData.memory.statements.map(stmt => `
             <div class="memory-item">
-                <h4>第${stmt.day}天发言</h4>
+                <h4>第${stmt.day}天公开发言</h4>
                 <p>${stmt.content}</p>
                 <p class="timestamp">阶段: ${stmt.phase}</p>
             </div>
         `).join('');
     } else {
-        statementsSec.innerHTML = '<div class="empty-state">暂无发言记录</div>';
+        statementsSec.innerHTML = '<div class="empty-state">暂无公开发言记录</div>';
+    }
+
+    // 填充内心想法（私密思考）
+    const innerThoughtsSec = document.getElementById('memoryInnerThoughts');
+    if (memoryData.memory.inner_thoughts && memoryData.memory.inner_thoughts.length > 0) {
+        innerThoughtsSec.innerHTML = memoryData.memory.inner_thoughts.map(thought => {
+            const isPreSpeechAnalysis = thought.type === 'pre_speech_analysis';
+            const itemClass = `memory-item inner-thought-item ${isPreSpeechAnalysis ? 'pre-speech-analysis' : ''}`;
+            
+            return `
+                <div class="${itemClass}">
+                    <h4>第${thought.day}天内心想法 <span class="thought-type">[${getThoughtTypeText(thought.type)}]</span></h4>
+                    <p class="inner-thought-content">${escapeHtml(thought.content)}</p>
+                    <p class="timestamp">阶段: ${thought.phase}</p>
+                </div>
+            `;
+        }).join('');
+    } else {
+        innerThoughtsSec.innerHTML = '<div class="empty-state">暂无内心想法记录</div>';
     }
 
     // 填充信念记录
@@ -508,6 +527,21 @@ function getCallTypeText(callType) {
         'general': '一般调用'
     };
     return typeMap[callType] || callType;
+}
+
+// 获取内心想法类型文本
+function getThoughtTypeText(thoughtType) {
+    const types = {
+        'kill_reason': '击杀理由',
+        'check_reason': '查验理由',
+        'save_reason': '救人理由',
+        'poison_reason': '毒人理由',
+        'protect_reason': '保护理由',
+        'vote_reason': '投票理由',
+        'pre_speech_analysis': '发言前分析',
+        'general': '一般想法'
+    };
+    return types[thoughtType] || thoughtType;
 }
 
 // HTML转义函数

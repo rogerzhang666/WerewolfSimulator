@@ -162,6 +162,7 @@ def get_character_memory(character_name):
                 "decisions": character.memory.get("decisions", []),
                 "observations": character.memory.get("observations", []),
                 "statements": character.memory.get("statements", []),
+                "inner_thoughts": character.memory.get("inner_thoughts", []),
                 "beliefs": character.memory.get("beliefs", {}),
                 "votes": character.memory.get("votes", []),
                 "ai_calls": character.memory.get("ai_calls", [])
