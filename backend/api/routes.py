@@ -174,6 +174,54 @@ def get_character_memory(character_name):
     except Exception as e:
         return jsonify({"status": "error", "message": f"获取角色记忆失败: {str(e)}"})
 
+@app.route('/api/character/memory/speech/<character_name>', methods=['POST'])
+def get_speech_ai_calls(character_name):
+    """获取特定发言的AI调用记录"""
+    try:
+        if not game_engine.game:
+            return jsonify({"status": "error", "message": "游戏未初始化"})
+
+        # 获取请求数据
+        data = request.get_json()
+        ai_call_ids = data.get('ai_call_ids', [])
+        
+        if not ai_call_ids:
+            return jsonify({"status": "error", "message": "未提供AI调用记录ID"})
+
+        # 查找角色
+        character = None
+        for char in game_engine.game.characters:
+            if char.name == character_name:
+                character = char
+                break
+
+        if not character:
+            return jsonify({"status": "error", "message": f"未找到角色: {character_name}"})
+
+        # 获取该角色的AI调用记录
+        all_ai_calls = character.memory.get("ai_calls", [])
+        
+        # 根据call_id筛选出相关的AI调用记录
+        related_ai_calls = []
+        for call in all_ai_calls:
+            if call.get("call_id") in ai_call_ids:
+                related_ai_calls.append(call)
+
+        # 返回数据
+        response_data = {
+            "name": character.name,
+            "role": character.role,
+            "alive": character.alive,
+            "memory": {
+                "ai_calls": related_ai_calls
+            },
+            "memory_summary": character.get_memory_summary()
+        }
+
+        return jsonify({"status": "success", "data": response_data})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"获取发言AI调用记录失败: {str(e)}"})
+
 # WebSocket事件
 @socketio.on('connect')
 def handle_connect():

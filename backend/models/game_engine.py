@@ -657,14 +657,23 @@ class GameEngine:
             try:
                 ai_client = self.ai_clients.get(character.id)
                 if ai_client:
+                    # 收集这次发言相关的AI调用记录ID
+                    speech_ai_call_ids = []
+                    
                     # 第一阶段：内心决策分析
                     inner_decision = self.generate_inner_decision(character, context, alive_characters, ai_client)
+                    # 获取内心决策的AI调用记录ID
+                    if hasattr(character, 'memory') and 'latest_ai_call_id' in character.memory:
+                        speech_ai_call_ids.append(character.memory['latest_ai_call_id'])
                     
                     # 第二阶段：基于内心决策的公开发言
                     public_speech = self.generate_public_speech(character, context, alive_characters, inner_decision, ai_client)
+                    # 获取公开发言的AI调用记录ID
+                    if hasattr(character, 'memory') and 'latest_ai_call_id' in character.memory:
+                        speech_ai_call_ids.append(character.memory['latest_ai_call_id'])
 
-                    # 记录角色发言到游戏日志（公开发言）
-                    self.game.log(character.name, public_speech, message_type="public_statement")
+                    # 记录角色发言到游戏日志（公开发言），关联AI调用记录
+                    self.game.log(character.name, public_speech, message_type="public_statement", ai_call_ids=speech_ai_call_ids)
                     self.emit_game_update(f"{character.name}发言: {public_speech}")
 
                     # 更新角色记忆

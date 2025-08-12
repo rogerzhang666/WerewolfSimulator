@@ -4,7 +4,7 @@
     "name": "张三",
     "gender": "男",
     "style": "激进",
-    "model": "deepseek-chat",
+    "model": "deepseek-r1",
     "role": ""
   },
   {
@@ -12,7 +12,7 @@
     "name": "李四",
     "gender": "女",
     "style": "保守",
-    "model": "deepseek-chat",
+    "model": "qwen-plus",
     "role": ""
   },
   {
@@ -20,7 +20,7 @@
     "name": "王五",
     "gender": "男",
     "style": "理性",
-    "model": "deepseek-chat",
+    "model": "Doubao-Seed-1.6-thinking",
     "role": ""
   },
   {
@@ -28,7 +28,7 @@
     "name": "赵六",
     "gender": "女",
     "style": "情绪化",
-    "model": "deepseek-chat",
+    "model": "deepseek-v3",
     "role": ""
   },
   {
@@ -36,7 +36,7 @@
     "name": "钱七",
     "gender": "男",
     "style": "冷静",
-    "model": "deepseek-chat",
+    "model": "qwen-turbo",
     "role": ""
   },
   {
@@ -44,7 +44,7 @@
     "name": "孙八",
     "gender": "女",
     "style": "多疑",
-    "model": "deepseek-chat",
+    "model": "Doubao-Seed-1.6",
     "role": ""
   },
   {
@@ -60,7 +60,7 @@
     "name": "吴十",
     "gender": "女",
     "style": "活跃",
-    "model": "deepseek-chat",
+    "model": "qwen-plus",
     "role": ""
   }
 ]

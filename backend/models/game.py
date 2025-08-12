@@ -125,7 +125,7 @@ class Game:
 
         return False
 
-    def log(self, source, message, phase=None, is_public=True, message_type="system"):
+    def log(self, source, message, phase=None, is_public=True, message_type="system", ai_call_ids=None):
         """
         记录游戏日志
 
@@ -139,6 +139,7 @@ class Game:
                 - "public_statement": 公开发言
                 - "inner_thought": 内心想法
                 - "action": 角色行动
+            ai_call_ids (list, optional): 关联的AI调用记录ID列表. 默认为None.
         """
         log_entry = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -147,7 +148,8 @@ class Game:
             "source": source,
             "message": message,
             "is_public": is_public,
-            "message_type": message_type
+            "message_type": message_type,
+            "ai_call_ids": ai_call_ids or []
         }
         self.logs.append(log_entry)
 

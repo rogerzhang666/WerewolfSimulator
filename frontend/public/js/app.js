@@ -16,7 +16,7 @@ const elements = {
     gameStatus: document.getElementById('gameStatus'),
     gamePhase: document.getElementById('gamePhase'),
     gameDay: document.getElementById('gameDay'),
-    gameMessage: document.getElementById('gameMessage'),
+    modelCallLog: document.getElementById('modelCallLog'),
     characters: document.getElementById('characters'),
     gameLogs: document.getElementById('gameLogs')
 };
@@ -27,12 +27,12 @@ const socket = io('http://localhost:5003');
 // 事件监听
 socket.on('connect', () => {
     console.log('已连接到服务器');
-    addMessage('已连接到服务器');
+    addModelCallRecord('系统', '连接状态', '已连接到服务器', 'success');
 });
 
 socket.on('disconnect', () => {
     console.log('与服务器断开连接');
-    addMessage('与服务器断开连接');
+    addModelCallRecord('系统', '连接状态', '与服务器断开连接', 'error');
 });
 
 socket.on('game_state', (data) => {
@@ -43,14 +43,16 @@ socket.on('game_state', (data) => {
 socket.on('game_update', (data) => {
     console.log('收到游戏更新:', data);
     updateGameState(data);
-    if (data.message) {
-        addMessage(data.message);
-    }
+});
+
+socket.on('model_call', (data) => {
+    console.log('收到模型调用记录:', data);
+    addModelCallRecord(data.character, data.call_type, data.status_text, data.status);
 });
 
 socket.on('error', (data) => {
     console.error('错误:', data.message);
-    addMessage(`错误: ${data.message}`);
+    addModelCallRecord('系统', '错误', data.message, 'error');
 });
 
 // 按钮事件
@@ -61,15 +63,15 @@ elements.startBtn.addEventListener('click', () => {
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            addMessage('游戏开始请求已发送');
+            addModelCallRecord('系统', '游戏控制', '游戏开始请求已发送', 'success');
             updateButtonState('running');
         } else {
-            addMessage(`错误: ${data.message}`);
+            addModelCallRecord('系统', '游戏控制', `错误: ${data.message}`, 'error');
         }
     })
     .catch(error => {
         console.error('启动游戏失败:', error);
-        addMessage(`启动游戏失败: ${error.message}`);
+        addModelCallRecord('系统', '游戏控制', `启动游戏失败: ${error.message}`, 'error');
     });
 });
 
@@ -80,15 +82,15 @@ elements.pauseBtn.addEventListener('click', () => {
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            addMessage('游戏暂停请求已发送');
+            addModelCallRecord('系统', '游戏控制', '游戏暂停请求已发送', 'success');
             updateButtonState('paused');
         } else {
-            addMessage(`错误: ${data.message}`);
+            addModelCallRecord('系统', '游戏控制', `错误: ${data.message}`, 'error');
         }
     })
     .catch(error => {
         console.error('暂停游戏失败:', error);
-        addMessage(`暂停游戏失败: ${error.message}`);
+        addModelCallRecord('系统', '游戏控制', `暂停游戏失败: ${error.message}`, 'error');
     });
 });
 
@@ -99,15 +101,15 @@ elements.resumeBtn.addEventListener('click', () => {
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            addMessage('游戏恢复请求已发送');
+            addModelCallRecord('系统', '游戏控制', '游戏恢复请求已发送', 'success');
             updateButtonState('running');
         } else {
-            addMessage(`错误: ${data.message}`);
+            addModelCallRecord('系统', '游戏控制', `错误: ${data.message}`, 'error');
         }
     })
     .catch(error => {
         console.error('恢复游戏失败:', error);
-        addMessage(`恢复游戏失败: ${error.message}`);
+        addModelCallRecord('系统', '游戏控制', `恢复游戏失败: ${error.message}`, 'error');
     });
 });
 
@@ -118,15 +120,15 @@ elements.resetBtn.addEventListener('click', () => {
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            addMessage('游戏重置请求已发送');
+            addModelCallRecord('系统', '游戏控制', '游戏重置请求已发送', 'success');
             updateButtonState('waiting');
         } else {
-            addMessage(`错误: ${data.message}`);
+            addModelCallRecord('系统', '游戏控制', `错误: ${data.message}`, 'error');
         }
     })
     .catch(error => {
         console.error('重置游戏失败:', error);
-        addMessage(`重置游戏失败: ${error.message}`);
+        addModelCallRecord('系统', '游戏控制', `重置游戏失败: ${error.message}`, 'error');
     });
 });
 
@@ -162,16 +164,30 @@ function updateGameState(data) {
     }
 }
 
-// 添加消息到消息框
-function addMessage(message) {
-    const messageElement = document.createElement('div');
-    messageElement.textContent = message;
-    elements.gameMessage.appendChild(messageElement);
-    elements.gameMessage.scrollTop = elements.gameMessage.scrollHeight;
-
-    // 限制消息数量
-    if (elements.gameMessage.children.length > 10) {
-        elements.gameMessage.removeChild(elements.gameMessage.firstChild);
+// 添加模型调用记录
+function addModelCallRecord(character, callType, statusText, status) {
+    const timestamp = new Date().toLocaleTimeString();
+    
+    const recordElement = document.createElement('div');
+    recordElement.className = `model-call-item ${status}`;
+    
+    recordElement.innerHTML = `
+        <div class="call-status-icon ${status}"></div>
+        <div class="call-content">
+            <div class="call-info">
+                <span class="call-character">${character}</span>
+                <span class="call-type">${getCallTypeText(callType)}</span>
+            </div>
+            <div class="call-timestamp">${timestamp}</div>
+        </div>
+    `;
+    
+    elements.modelCallLog.appendChild(recordElement);
+    elements.modelCallLog.scrollTop = elements.modelCallLog.scrollHeight;
+    
+    // 限制记录数量
+    if (elements.modelCallLog.children.length > 15) {
+        elements.modelCallLog.removeChild(elements.modelCallLog.firstChild);
     }
 }
 
@@ -196,6 +212,7 @@ function renderCharacters() {
         info.innerHTML = `
             <div>性别: ${character.gender}</div>
             <div>性格: ${character.style}</div>
+            <div>模型: ${character.model || '未知'}</div>
             <div>状态: ${character.alive ? '存活' : '死亡'}</div>
         `;
 
@@ -245,7 +262,8 @@ function renderLogs() {
             const memoryBtn = document.createElement('button');
             memoryBtn.className = 'memory-btn';
             memoryBtn.textContent = '记忆';
-            memoryBtn.onclick = () => showCharacterMemory(log.source);
+            // 传递完整的日志条目，而不是仅传递角色名称
+            memoryBtn.onclick = () => showSpeechMemory(log);
             content.appendChild(memoryBtn);
         }
 
@@ -259,6 +277,38 @@ function renderLogs() {
     elements.gameLogs.scrollTop = elements.gameLogs.scrollHeight;
 }
 
+// 显示特定发言的记忆
+async function showSpeechMemory(logEntry) {
+    try {
+        // 检查是否有AI调用记录ID
+        if (logEntry.ai_call_ids && logEntry.ai_call_ids.length > 0) {
+            // 调用新的API获取特定发言的AI调用记录
+            const response = await fetch(`/api/character/memory/speech/${encodeURIComponent(logEntry.source)}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    ai_call_ids: logEntry.ai_call_ids
+                })
+            });
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                displayMemoryModal(data.data, true, logEntry.message); // 传递额外参数指示这是特定发言的记忆
+            } else {
+                addModelCallRecord('系统', '记忆查询', `获取发言AI调用记录失败: ${data.message}`, 'error');
+            }
+        } else {
+            // 回退到显示角色的完整记忆
+            showCharacterMemory(logEntry.source);
+        }
+    } catch (error) {
+        console.error('获取发言记忆失败:', error);
+        addModelCallRecord('系统', '记忆查询', `获取发言记忆失败: ${error.message}`, 'error');
+    }
+}
+
 // 显示角色记忆
 async function showCharacterMemory(characterName) {
     try {
@@ -268,107 +318,156 @@ async function showCharacterMemory(characterName) {
         if (data.status === 'success') {
             displayMemoryModal(data.data);
         } else {
-            addMessage(`获取角色记忆失败: ${data.message}`);
+            addModelCallRecord('系统', '记忆查询', `获取角色记忆失败: ${data.message}`, 'error');
         }
     } catch (error) {
         console.error('获取角色记忆失败:', error);
-        addMessage(`获取角色记忆失败: ${error.message}`);
+        addModelCallRecord('系统', '记忆查询', `获取角色记忆失败: ${error.message}`, 'error');
     }
 }
 
 // 显示记忆浮窗
-function displayMemoryModal(memoryData) {
+function displayMemoryModal(memoryData, isSpecificSpeech = false, speechContent = '') {
     const modal = document.getElementById('memoryModal');
     const characterNameSpan = document.getElementById('memoryCharacterName');
 
-    characterNameSpan.textContent = `${memoryData.name} (${getRoleText(memoryData.role)})`;
-
-    // 填充记忆摘要
-    const summarySec = document.getElementById('memorySummary');
-    summarySec.innerHTML = memoryData.memory_summary ?
-        `<div class="memory-item"><p>${memoryData.memory_summary.replace(/\n/g, '<br>')}</p></div>` :
-        '<div class="empty-state">暂无记忆摘要</div>';
-
-    // 填充决策记录
-    const decisionsSec = document.getElementById('memoryDecisions');
-    if (memoryData.memory.decisions && memoryData.memory.decisions.length > 0) {
-        decisionsSec.innerHTML = memoryData.memory.decisions.map(decision => `
-            <div class="memory-item">
-                <h4>第${decision.day}天 - ${decision.type.toUpperCase()}</h4>
-                <p><strong>目标:</strong> ${decision.target || '无'}</p>
-                <p><strong>理由:</strong> ${decision.reason || '无理由记录'}</p>
-                <p class="timestamp">阶段: ${decision.phase}</p>
-            </div>
-        `).join('');
+    // 设置标题
+    if (isSpecificSpeech && speechContent) {
+        characterNameSpan.textContent = `${memoryData.name} (${getRoleText(memoryData.role)}) - 发言："${speechContent.substring(0, 30)}${speechContent.length > 30 ? '...' : ''}"`;
     } else {
-        decisionsSec.innerHTML = '<div class="empty-state">暂无决策记录</div>';
+        characterNameSpan.textContent = `${memoryData.name} (${getRoleText(memoryData.role)})`;
     }
 
-    // 填充观察记录
-    const observationsSec = document.getElementById('memoryObservations');
-    if (memoryData.memory.observations && memoryData.memory.observations.length > 0) {
-        observationsSec.innerHTML = memoryData.memory.observations.map(obs => `
-            <div class="memory-item">
-                <h4>第${obs.day}天观察</h4>
-                <p>${obs.content}</p>
-                <p class="timestamp">阶段: ${obs.phase}</p>
-            </div>
-        `).join('');
+    // 如果是特定发言的记忆，隐藏其他标签页，只显示AI调用记录
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    if (isSpecificSpeech) {
+        // 隐藏所有标签按钮和内容
+        tabButtons.forEach(btn => {
+            if (btn.dataset.tab !== 'ai_calls') {
+                btn.style.display = 'none';
+            } else {
+                btn.style.display = 'block';
+                btn.classList.add('active');
+            }
+        });
+        
+        tabContents.forEach(content => {
+            if (content.id !== 'memoryTab-ai_calls') {
+                content.classList.remove('active');
+            } else {
+                content.classList.add('active');
+            }
+        });
     } else {
-        observationsSec.innerHTML = '<div class="empty-state">暂无观察记录</div>';
+        // 显示所有标签
+        tabButtons.forEach(btn => btn.style.display = 'block');
+        
+        // 重置为默认的第一个标签页（记忆摘要）
+        tabButtons.forEach(btn => btn.classList.remove('active'));
+        tabContents.forEach(content => content.classList.remove('active'));
+        
+        document.querySelector('[data-tab="summary"]').classList.add('active');
+        document.getElementById('memoryTab-summary').classList.add('active');
     }
 
-    // 填充发言记录（仅公开发言）
-    const statementsSec = document.getElementById('memoryStatements');
-    if (memoryData.memory.statements && memoryData.memory.statements.length > 0) {
-        statementsSec.innerHTML = memoryData.memory.statements.map(stmt => `
-            <div class="memory-item">
-                <h4>第${stmt.day}天公开发言</h4>
-                <p>${stmt.content}</p>
-                <p class="timestamp">阶段: ${stmt.phase}</p>
-            </div>
-        `).join('');
-    } else {
-        statementsSec.innerHTML = '<div class="empty-state">暂无公开发言记录</div>';
-    }
+    // 仅在非特定发言模式下填充其他记忆内容
+    if (!isSpecificSpeech) {
+        // 填充记忆摘要
+        const summarySec = document.getElementById('memorySummary');
+        summarySec.innerHTML = memoryData.memory_summary ?
+            `<div class="memory-item"><p>${memoryData.memory_summary.replace(/\n/g, '<br>')}</p></div>` :
+            '<div class="empty-state">暂无记忆摘要</div>';
 
-    // 填充内心想法（私密思考）
-    const innerThoughtsSec = document.getElementById('memoryInnerThoughts');
-    if (memoryData.memory.inner_thoughts && memoryData.memory.inner_thoughts.length > 0) {
-        innerThoughtsSec.innerHTML = memoryData.memory.inner_thoughts.map(thought => {
-            const isPreSpeechAnalysis = thought.type === 'pre_speech_analysis';
-            const itemClass = `memory-item inner-thought-item ${isPreSpeechAnalysis ? 'pre-speech-analysis' : ''}`;
-            
-            return `
-                <div class="${itemClass}">
-                    <h4>第${thought.day}天内心想法 <span class="thought-type">[${getThoughtTypeText(thought.type)}]</span></h4>
-                    <p class="inner-thought-content">${escapeHtml(thought.content)}</p>
-                    <p class="timestamp">阶段: ${thought.phase}</p>
+        // 填充决策记录
+        const decisionsSec = document.getElementById('memoryDecisions');
+        if (memoryData.memory.decisions && memoryData.memory.decisions.length > 0) {
+            decisionsSec.innerHTML = memoryData.memory.decisions.map(decision => `
+                <div class="memory-item">
+                    <h4>第${decision.day}天 - ${decision.type.toUpperCase()}</h4>
+                    <p><strong>目标:</strong> ${decision.target || '无'}</p>
+                    <p><strong>理由:</strong> ${decision.reason || '无理由记录'}</p>
+                    <p class="timestamp">阶段: ${decision.phase}</p>
                 </div>
-            `;
-        }).join('');
-    } else {
-        innerThoughtsSec.innerHTML = '<div class="empty-state">暂无内心想法记录</div>';
+            `).join('');
+        } else {
+            decisionsSec.innerHTML = '<div class="empty-state">暂无决策记录</div>';
+        }
+
+        // 填充观察记录
+        const observationsSec = document.getElementById('memoryObservations');
+        if (memoryData.memory.observations && memoryData.memory.observations.length > 0) {
+            observationsSec.innerHTML = memoryData.memory.observations.map(obs => `
+                <div class="memory-item">
+                    <h4>第${obs.day}天观察</h4>
+                    <p>${obs.content}</p>
+                    <p class="timestamp">阶段: ${obs.phase}</p>
+                </div>
+            `).join('');
+        } else {
+            observationsSec.innerHTML = '<div class="empty-state">暂无观察记录</div>';
+        }
+
+        // 填充发言记录（仅公开发言）
+        const statementsSec = document.getElementById('memoryStatements');
+        if (memoryData.memory.statements && memoryData.memory.statements.length > 0) {
+            statementsSec.innerHTML = memoryData.memory.statements.map(stmt => `
+                <div class="memory-item">
+                    <h4>第${stmt.day}天公开发言</h4>
+                    <p>${stmt.content}</p>
+                    <p class="timestamp">阶段: ${stmt.phase}</p>
+                </div>
+            `).join('');
+        } else {
+            statementsSec.innerHTML = '<div class="empty-state">暂无公开发言记录</div>';
+        }
+
+        // 填充内心想法（私密思考）
+        const innerThoughtsSec = document.getElementById('memoryInnerThoughts');
+        if (memoryData.memory.inner_thoughts && memoryData.memory.inner_thoughts.length > 0) {
+            innerThoughtsSec.innerHTML = memoryData.memory.inner_thoughts.map(thought => {
+                const isPreSpeechAnalysis = thought.type === 'pre_speech_analysis';
+                const itemClass = `memory-item inner-thought-item ${isPreSpeechAnalysis ? 'pre-speech-analysis' : ''}`;
+                
+                return `
+                    <div class="${itemClass}">
+                        <h4>第${thought.day}天内心想法 <span class="thought-type">[${getThoughtTypeText(thought.type)}]</span></h4>
+                        <p class="inner-thought-content">${escapeHtml(thought.content)}</p>
+                        <p class="timestamp">阶段: ${thought.phase}</p>
+                    </div>
+                `;
+            }).join('');
+        } else {
+            innerThoughtsSec.innerHTML = '<div class="empty-state">暂无内心想法记录</div>';
+        }
+
+        // 填充信念记录
+        const beliefsSec = document.getElementById('memoryBeliefs');
+        if (memoryData.memory.beliefs && Object.keys(memoryData.memory.beliefs).length > 0) {
+            beliefsSec.innerHTML = Object.entries(memoryData.memory.beliefs).map(([target, belief]) => `
+                <div class="belief-item">
+                    <span class="belief-target">${target}</span>
+                    <span class="belief-description">${belief.description}</span>
+                    <span class="belief-confidence">${Math.round(belief.confidence * 100)}%</span>
+                </div>
+            `).join('');
+        } else {
+            beliefsSec.innerHTML = '<div class="empty-state">暂无信念记录</div>';
+        }
     }
 
-    // 填充信念记录
-    const beliefsSec = document.getElementById('memoryBeliefs');
-    if (memoryData.memory.beliefs && Object.keys(memoryData.memory.beliefs).length > 0) {
-        beliefsSec.innerHTML = Object.entries(memoryData.memory.beliefs).map(([target, belief]) => `
-            <div class="belief-item">
-                <span class="belief-target">${target}</span>
-                <span class="belief-description">${belief.description}</span>
-                <span class="belief-confidence">${Math.round(belief.confidence * 100)}%</span>
-            </div>
-        `).join('');
-    } else {
-        beliefsSec.innerHTML = '<div class="empty-state">暂无信念记录</div>';
-    }
-
-    // 填充AI调用记录
+    // 始终填充AI调用记录（这是核心功能）
     const aiCallsSec = document.getElementById('memoryAiCalls');
     if (memoryData.memory.ai_calls && memoryData.memory.ai_calls.length > 0) {
-        aiCallsSec.innerHTML = memoryData.memory.ai_calls.map(call => `
+        let callsHtml = '';
+        if (isSpecificSpeech) {
+            callsHtml = `<div class="specific-speech-notice">
+                <p><strong>以下是该发言相关的AI调用记录：</strong></p>
+            </div>`;
+        }
+        
+        callsHtml += memoryData.memory.ai_calls.map(call => `
             <div class="ai-call-item">
                 <div class="ai-call-header">
                     <h4>${getCallTypeText(call.call_type)} - ${call.model}</h4>
@@ -388,6 +487,8 @@ function displayMemoryModal(memoryData) {
                 </div>
             </div>
         `).join('');
+        
+        aiCallsSec.innerHTML = callsHtml;
     } else {
         aiCallsSec.innerHTML = '<div class="empty-state">暂无AI调用记录</div>';
     }
@@ -560,12 +661,12 @@ function initializeGame() {
             if (data.status === 'success') {
                 updateGameState(data.data);
             } else {
-                addMessage(`获取游戏状态失败: ${data.message}`);
+                addModelCallRecord('系统', '状态查询', `获取游戏状态失败: ${data.message}`, 'error');
             }
         })
         .catch(error => {
             console.error('获取游戏状态失败:', error);
-            addMessage(`获取游戏状态失败: ${error.message}`);
+            addModelCallRecord('系统', '状态查询', `获取游戏状态失败: ${error.message}`, 'error');
         });
 
     // 获取角色配置
