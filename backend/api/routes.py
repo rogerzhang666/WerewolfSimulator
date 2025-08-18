@@ -3,9 +3,11 @@
 
 import os
 import json
-from flask import jsonify, request
+from flask import jsonify, request, Response
 from backend.app import app, socketio
 from backend.models.game_engine import GameEngine
+from backend.utils.ai_call_manager import ai_call_manager
+from backend.utils.voice_client import voice_client
 
 # 创建游戏引擎实例
 game_engine = GameEngine(socketio)
@@ -153,7 +155,7 @@ def get_character_memory(character_name):
         if not character:
             return jsonify({"status": "error", "message": f"未找到角色: {character_name}"})
 
-        # 获取角色记忆信息
+        # 获取角色记忆信息（不包含AI调用记录）
         memory_data = {
             "name": character.name,
             "role": character.role,
@@ -165,7 +167,7 @@ def get_character_memory(character_name):
                 "inner_thoughts": character.memory.get("inner_thoughts", []),
                 "beliefs": character.memory.get("beliefs", {}),
                 "votes": character.memory.get("votes", []),
-                "ai_calls": character.memory.get("ai_calls", [])
+                "ai_calls": ai_call_manager.get_all_ai_calls(character.name)  # 从全局管理器获取
             },
             "memory_summary": character.get_memory_summary()
         }
@@ -198,14 +200,8 @@ def get_speech_ai_calls(character_name):
         if not character:
             return jsonify({"status": "error", "message": f"未找到角色: {character_name}"})
 
-        # 获取该角色的AI调用记录
-        all_ai_calls = character.memory.get("ai_calls", [])
-        
-        # 根据call_id筛选出相关的AI调用记录
-        related_ai_calls = []
-        for call in all_ai_calls:
-            if call.get("call_id") in ai_call_ids:
-                related_ai_calls.append(call)
+        # 从全局AI调用记录管理器获取相关记录
+        related_ai_calls = ai_call_manager.get_ai_calls_by_ids(character_name, ai_call_ids)
 
         # 返回数据
         response_data = {
@@ -255,3 +251,52 @@ def handle_game_action(data):
         reset_game()
     else:
         socketio.emit('error', {"message": f"未知的游戏操作: {action}"})
+
+@socketio.on('voice_completed')
+def handle_voice_completed(data):
+    """处理语音播放完成事件"""
+    character = data.get('character')
+    text = data.get('text')
+    timestamp = data.get('timestamp')
+    
+    print(f"收到语音播放完成确认: {character} - {text[:30]}...")
+    
+    # 通知游戏引擎语音播放完成
+    if hasattr(game_engine, 'on_voice_completed'):
+        game_engine.on_voice_completed(character, text)
+
+# 语音合成API
+@app.route('/api/voice/synthesize', methods=['POST'])
+def synthesize_voice():
+    """
+    语音合成接口
+    请求格式: {"text": "要合成的文本", "character": "角色名称"}
+    返回: WAV音频流
+    """
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "请求数据不能为空"}), 400
+            
+        text = data.get('text', '').strip()
+        character_name = data.get('character', '系统')
+        
+        if not text:
+            return jsonify({"error": "文本内容不能为空"}), 400
+            
+        # 调用语音合成
+        audio_data = voice_client.synthesize_speech(text, character_name)
+        
+        if audio_data:
+            # 返回音频流
+            return Response(
+                audio_data,
+                mimetype='audio/wav',
+                headers={'Content-Disposition': 'attachment; filename=speech.wav'}
+            )
+        else:
+            return jsonify({"error": "语音合成失败"}), 500
+            
+    except Exception as e:
+        print(f"语音合成API错误: {str(e)}")
+        return jsonify({"error": f"服务器错误: {str(e)}"}), 500

@@ -16,6 +16,8 @@ class GamePhase(Enum):
     DAWN = "dawn"             # 天亮阶段
     DISCUSSION = "discussion" # 讨论阶段
     VOTE = "vote"             # 投票阶段
+    PK = "pk"                 # PK发言阶段（平票时）
+    REVOTE = "revote"         # 重新投票阶段
     END = "end"               # 游戏结束阶段
 
 class GameStatus(Enum):
@@ -42,6 +44,9 @@ class Game:
         self.protected_by_guard = None  # 被守卫保护的角色
         self.witch_used_save = False  # 女巫是否已使用解药
         self.witch_used_poison = False  # 女巫是否已使用毒药
+        self.pk_candidates = []  # PK候选人列表
+        self.revotes = {}  # 重新投票记录
+        self.is_revote = False  # 是否是重新投票
 
     def add_character(self, character):
         """添加角色到游戏"""
@@ -72,6 +77,7 @@ class Game:
 
     def next_phase(self):
         """进入下一个游戏阶段"""
+        # 基本阶段顺序
         phase_order = [
             GamePhase.NIGHT,
             GamePhase.WEREWOLF,
@@ -83,14 +89,29 @@ class Game:
             GamePhase.VOTE,
         ]
 
-        current_index = phase_order.index(self.phase)
-        next_index = (current_index + 1) % len(phase_order)
-        self.phase = phase_order[next_index]
-
-        # 如果是新的一天
-        if self.phase == GamePhase.NIGHT:
+        # PK和重新投票不在正常循环中，需要特殊处理
+        if self.phase == GamePhase.VOTE and self.pk_candidates:
+            # 从投票进入PK阶段
+            self.phase = GamePhase.PK
+        elif self.phase == GamePhase.PK:
+            # 从PK进入重新投票阶段
+            self.phase = GamePhase.REVOTE
+        elif self.phase == GamePhase.REVOTE:
+            # 重新投票后，如果还有PK或游戏结束，特殊处理
+            # 这里暂时进入夜晚（正常流程会在handle_revote_phase中处理）
+            self.phase = GamePhase.NIGHT
             self.current_day += 1
             self.log("系统", f"第{self.current_day}天夜晚降临")
+        else:
+            # 正常阶段切换
+            current_index = phase_order.index(self.phase)
+            next_index = (current_index + 1) % len(phase_order)
+            self.phase = phase_order[next_index]
+
+            # 如果是新的一天
+            if self.phase == GamePhase.NIGHT:
+                self.current_day += 1
+                self.log("系统", f"第{self.current_day}天夜晚降临")
 
         # 检查游戏是否结束
         if self.check_game_over():

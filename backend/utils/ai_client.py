@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
+from backend.utils.ai_call_manager import ai_call_manager
 
 # 加载环境变量
 load_dotenv()
@@ -17,7 +18,8 @@ class AIClient:
 
     def __init__(self):
         """初始化AI客户端"""
-        pass
+        # 用于存储AI调用记录的独立存储，不放在角色记忆中
+        self.ai_call_records = {}
 
     def generate_response(self, prompt, character=None):
         """
@@ -32,7 +34,7 @@ class AIClient:
         """
         raise NotImplementedError("子类必须实现此方法")
 
-    def _record_ai_call(self, character, system_prompt, user_prompt, response, model_name, call_type="general", status="success"):
+    def _record_ai_call(self, character, system_prompt, user_prompt, response, model_name, call_type="general", status="success", action_type=None):
         """
         记录AI调用信息
 
@@ -44,17 +46,19 @@ class AIClient:
             model_name: 模型名称
             call_type: 调用类型
             status: 调用状态 (success/error)
+            action_type: 行为类型，用于关联特定行为
             
         Returns:
             str: AI调用记录的唯一ID
         """
-        if character and hasattr(character, 'memory'):
+        if character:
             call_id = str(uuid.uuid4())
             ai_call_record = {
                 "call_id": call_id,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "model": model_name,
                 "call_type": call_type,
+                "action_type": action_type,  # 新增字段，用于关联特定行为
                 "input": {
                     "system_prompt": system_prompt,
                     "user_prompt": user_prompt
@@ -65,24 +69,20 @@ class AIClient:
                 "status": status
             }
 
-            # 确保memory中有ai_calls字段
-            if "ai_calls" not in character.memory:
-                character.memory["ai_calls"] = []
-
-            character.memory["ai_calls"].append(ai_call_record)
-
-            # 只保留最近20次调用记录，避免内存过大
-            if len(character.memory["ai_calls"]) > 20:
-                character.memory["ai_calls"] = character.memory["ai_calls"][-20:]
+            # 使用全局AI调用记录管理器
+            ai_call_manager.add_ai_call_record(character.name, ai_call_record)
             
-            # 记录最新的AI调用ID
-            character.memory["latest_ai_call_id"] = call_id
+            # 仍然在character.memory中记录最新的AI调用ID，用于关联
+            if hasattr(character, 'memory'):
+                character.memory["latest_ai_call_id"] = call_id
             
             # 推送模型调用状态到前端
             self._emit_model_call_status(character, call_type, status, response)
                 
             return call_id
         return None
+
+
 
     def _emit_model_call_status(self, character, call_type, status, response_text):
         """
@@ -119,19 +119,27 @@ class AIClient:
             print(f"推送模型调用状态失败: {str(e)}")
 
 class DeepseekClient(AIClient):
-    """Deepseek模型客户端"""
+    """Deepseek模型客户端 - 通过阿里百炼服务调用"""
 
     def __init__(self, model_name="deepseek-chat"):
         """初始化Deepseek客户端"""
         super().__init__()
-        self.api_key = os.getenv("DEEPSEEK_API_KEY")
+        # 优先使用阿里百炼API调用DeepSeek模型
+        self.api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY")
         if not self.api_key:
-            raise ValueError("未设置DEEPSEEK_API_KEY环境变量")
+            # 如果没有百炼API密钥，回退到DeepSeek官方API
+            self.api_key = os.getenv("DEEPSEEK_API_KEY")
+            if not self.api_key:
+                raise ValueError("未设置DASHSCOPE_API_KEY、QWEN_API_KEY或DEEPSEEK_API_KEY环境变量")
+            self.use_dashscope = False
+            self.api_url = "https://api.deepseek.com/v1/chat/completions"
+        else:
+            self.use_dashscope = True
+            self.api_url = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
 
-        self.api_url = "https://api.deepseek.com/v1/chat/completions"
         self.model_name = model_name  # 支持不同的DeepSeek模型
 
-    def generate_response(self, prompt, character=None, call_type="general"):
+    def generate_response(self, prompt, character=None, call_type="general", action_type=None):
         """
         生成Deepseek模型响应
 
@@ -139,6 +147,7 @@ class DeepseekClient(AIClient):
             prompt (str): 提示词
             character (Character, optional): 角色对象. 默认为None.
             call_type (str): 调用类型，用于调试
+            action_type (str): 行为类型，用于关联特定行为
 
         Returns:
             str: AI生成的响应
@@ -158,32 +167,61 @@ class DeepseekClient(AIClient):
         else:
             system_prompt = "你是狼人杀游戏中的一名角色。"
 
-        # DeepSeek模型名称映射
-        model_mapping = {
-            "deepseek-r1": "deepseek-reasoner",
-            "deepseek-v3": "deepseek-chat", 
-            "deepseek-chat": "deepseek-chat"
-        }
+        # 根据服务类型选择模型名称映射
+        if self.use_dashscope:
+            # 阿里百炼服务中的DeepSeek模型名称
+            model_mapping = {
+                "deepseek-r1": "deepseek-r1",
+                "deepseek-v3": "deepseek-v3", 
+                "deepseek-chat": "deepseek-v3"
+            }
+        else:
+            # DeepSeek官方API的模型名称
+            model_mapping = {
+                "deepseek-r1": "deepseek-reasoner",
+                "deepseek-v3": "deepseek-chat", 
+                "deepseek-chat": "deepseek-chat"
+            }
         
         # 使用映射后的模型名称
-        actual_model = model_mapping.get(self.model_name, "deepseek-chat")
+        actual_model = model_mapping.get(self.model_name, "deepseek-v3" if self.use_dashscope else "deepseek-chat")
         
-        # 构建请求数据
-        data = {
-            "model": actual_model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.7,
-            "max_tokens": 500
-        }
-
-        # 发送请求
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        }
+        # 根据服务类型构建请求数据
+        if self.use_dashscope:
+            # 阿里百炼API格式
+            data = {
+                "model": actual_model,
+                "input": {
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ]
+                },
+                "parameters": {
+                    "temperature": 0.7,
+                    "max_tokens": 500,
+                    "result_format": "message"
+                }
+            }
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
+            }
+        else:
+            # DeepSeek官方API格式
+            data = {
+                "model": actual_model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7,
+                "max_tokens": 500
+            }
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
+            }
 
         # 发送调用开始状态
         if character:
@@ -194,29 +232,46 @@ class DeepseekClient(AIClient):
             response.raise_for_status()
             result = response.json()
             
-            # 检查响应结构
-            if "choices" not in result or not result["choices"]:
-                raise Exception("API返回格式错误：缺少choices字段")
+            # 根据服务类型解析响应
+            if self.use_dashscope:
+                # 阿里百炼API响应格式
+                if "output" not in result:
+                    raise Exception("阿里百炼API返回格式错误：缺少output字段")
+                
+                output = result["output"]
+                choices = output.get("choices", [])
+                if choices:
+                    ai_response = choices[0].get("message", {}).get("content", "")
+                else:
+                    ai_response = output.get("text", "")
+            else:
+                # DeepSeek官方API响应格式
+                if "choices" not in result or not result["choices"]:
+                    raise Exception("DeepSeek API返回格式错误：缺少choices字段")
+                
+                ai_response = result["choices"][0]["message"]["content"]
             
-            ai_response = result["choices"][0]["message"]["content"]
             if not ai_response:
                 raise Exception("API返回了空响应")
 
             # 记录成功的AI调用
-            self._record_ai_call(character, system_prompt, prompt, ai_response, self.model_name, call_type, "success")
+            self._record_ai_call(character, system_prompt, prompt, ai_response, self.model_name, call_type, "success", action_type)
 
             return ai_response
         except requests.exceptions.RequestException as e:
-            print(f"Deepseek API网络请求失败: {str(e)}")
+            service_name = "阿里百炼" if self.use_dashscope else "DeepSeek官方"
+            print(f"{service_name} API网络请求失败: {str(e)}")
+            print(f"使用服务: {service_name}, 模型: {actual_model}")
             print(f"请求数据: {data}")
             fallback_response = f"这是{character.name if character else '某角色'}的回应：根据当前情况，我认为我们应该仔细思考..."
-            self._record_ai_call(character, system_prompt, prompt, f"[网络错误] {fallback_response}", self.model_name, call_type, "error")
+            self._record_ai_call(character, system_prompt, prompt, f"[{service_name}网络错误] {fallback_response}", self.model_name, call_type, "error", action_type)
             return fallback_response
         except Exception as e:
-            print(f"Deepseek API调用失败: {str(e)}")
-            print(f"使用的模型: {actual_model}")
+            service_name = "阿里百炼" if self.use_dashscope else "DeepSeek官方"
+            print(f"{service_name} API调用失败: {str(e)}")
+            print(f"使用服务: {service_name}, 模型: {actual_model}")
             fallback_response = f"这是{character.name if character else '某角色'}的回应：根据当前情况，我认为我们应该仔细思考..."
-            self._record_ai_call(character, system_prompt, prompt, f"[API调用失败] {fallback_response}", self.model_name, call_type, "error")
+            self._record_ai_call(character, system_prompt, prompt, f"[{service_name}API调用失败] {fallback_response}", self.model_name, call_type, "error", action_type)
             return fallback_response
 
 class QwenClient(AIClient):
@@ -232,7 +287,7 @@ class QwenClient(AIClient):
         self.api_url = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
         self.model_name = model_name  # 支持不同的Qwen模型
 
-    def generate_response(self, prompt, character=None, call_type="general"):
+    def generate_response(self, prompt, character=None, call_type="general", action_type=None):
         """
         生成通义千问模型响应
 
@@ -240,6 +295,7 @@ class QwenClient(AIClient):
             prompt (str): 提示词
             character (Character, optional): 角色对象. 默认为None.
             call_type (str): 调用类型，用于调试
+            action_type (str): 行为类型，用于关联特定行为
 
         Returns:
             str: AI生成的响应
@@ -303,7 +359,7 @@ class QwenClient(AIClient):
                 raise Exception("API返回了空响应")
 
             # 记录AI调用
-            self._record_ai_call(character, system_prompt, prompt, ai_response, self.model_name, call_type)
+            self._record_ai_call(character, system_prompt, prompt, ai_response, self.model_name, call_type, "success", action_type)
 
             return ai_response
         except requests.exceptions.RequestException as e:
@@ -311,7 +367,7 @@ class QwenClient(AIClient):
             fallback_response = f"这是{character.name if character else '某角色'}的回应：我认为我们应该仔细分析每个人的发言..."
 
             # 记录失败的调用
-            self._record_ai_call(character, system_prompt, prompt, f"[API调用失败] {fallback_response}", self.model_name, call_type)
+            self._record_ai_call(character, system_prompt, prompt, f"[API调用失败] {fallback_response}", self.model_name, call_type, "error", action_type)
 
             return fallback_response
         except Exception as e:
@@ -319,7 +375,7 @@ class QwenClient(AIClient):
             fallback_response = f"这是{character.name if character else '某角色'}的回应：我认为我们应该仔细分析每个人的发言..."
 
             # 记录失败的调用
-            self._record_ai_call(character, system_prompt, prompt, f"[API调用失败] {fallback_response}", self.model_name, call_type)
+            self._record_ai_call(character, system_prompt, prompt, f"[API调用失败] {fallback_response}", self.model_name, call_type, "error", action_type)
 
             return fallback_response
 
@@ -353,7 +409,7 @@ class DoubaoClient(AIClient):
         # 获取实际的模型名称
         self.model_name = self.model_mapping.get(model_name, model_name)
 
-    def generate_response(self, prompt, character=None, call_type="general"):
+    def generate_response(self, prompt, character=None, call_type="general", action_type=None):
         """
         生成豆包模型响应
 
@@ -361,6 +417,7 @@ class DoubaoClient(AIClient):
             prompt (str): 提示词
             character (Character, optional): 角色对象. 默认为None.
             call_type (str): 调用类型，用于调试
+            action_type (str): 行为类型，用于关联特定行为
 
         Returns:
             str: AI生成的响应
@@ -379,7 +436,15 @@ class DoubaoClient(AIClient):
         else:
             system_prompt = "你是狼人杀游戏中的一名角色。"
 
+        # 发送调用开始状态
+        if character:
+            self._emit_model_call_status(character, call_type, "loading", "")
+            
         try:
+            # 针对inner_decision调用增加超时时间和token限制
+            timeout_duration = 90 if call_type == "inner_decision" else 45
+            max_tokens = 300 if call_type == "inner_decision" else 500
+            
             # 使用OpenAI SDK调用火山方舟API
             response = self.client.chat.completions.create(
                 model=self.model_name,
@@ -388,8 +453,8 @@ class DoubaoClient(AIClient):
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
-                max_tokens=500,
-                timeout=30
+                max_tokens=max_tokens,
+                timeout=timeout_duration
             )
             
             # 获取AI响应
@@ -398,14 +463,14 @@ class DoubaoClient(AIClient):
                 raise Exception("API返回了空响应")
 
             # 记录AI调用
-            self._record_ai_call(character, system_prompt, prompt, ai_response, self.model_name, call_type)
+            self._record_ai_call(character, system_prompt, prompt, ai_response, self.model_name, call_type, "success", action_type)
 
             return ai_response
             
         except Exception as e:
             print(f"豆包API调用失败: {str(e)}")
             fallback_response = f"这是{character.name if character else '某角色'}的回应：我认为我们应该仔细分析每个人的发言..."
-            self._record_ai_call(character, system_prompt, prompt, f"[API调用失败] {fallback_response}", self.model_name, call_type)
+            self._record_ai_call(character, system_prompt, prompt, f"[API调用失败] {fallback_response}", self.model_name, call_type, "error", action_type)
             return fallback_response
 
 def get_ai_client(model_name):

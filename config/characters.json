@@ -1,66 +1,74 @@
 [
   {
     "id": 1,
-    "name": "张三",
+    "name": "张明盛",
     "gender": "男",
     "style": "激进",
-    "model": "deepseek-r1",
+    "model": "qwen-plus",
+    "voice": "longfei",
     "role": ""
   },
   {
     "id": 2,
-    "name": "李四",
+    "name": "李思思",
     "gender": "女",
     "style": "保守",
     "model": "qwen-plus",
+    "voice": "loongstella",
     "role": ""
   },
   {
     "id": 3,
-    "name": "王五",
+    "name": "王悟宁",
     "gender": "男",
     "style": "理性",
     "model": "Doubao-Seed-1.6-thinking",
+    "voice": "longcheng",
     "role": ""
   },
   {
     "id": 4,
-    "name": "赵六",
+    "name": "赵敏敏",
     "gender": "女",
     "style": "情绪化",
     "model": "deepseek-v3",
+    "voice": "loongbella",
     "role": ""
   },
   {
     "id": 5,
-    "name": "钱七",
+    "name": "钱思达",
     "gender": "男",
     "style": "冷静",
-    "model": "qwen-turbo",
+    "model": "deepseek-r1",
+    "voice": "longxiaocheng",
     "role": ""
   },
   {
     "id": 6,
-    "name": "孙八",
+    "name": "孙淼",
     "gender": "女",
     "style": "多疑",
     "model": "Doubao-Seed-1.6",
+    "voice": "longjing",
     "role": ""
   },
   {
     "id": 7,
-    "name": "周九",
+    "name": "周久",
     "gender": "男",
     "style": "沉默",
-    "model": "deepseek-chat",
+    "model": "deepseek-v3",
+    "voice": "longshu",
     "role": ""
   },
   {
     "id": 8,
-    "name": "吴十",
+    "name": "吴天天",
     "gender": "女",
     "style": "活跃",
     "model": "qwen-plus",
+    "voice": "longxiaoxia",
     "role": ""
   }
 ]

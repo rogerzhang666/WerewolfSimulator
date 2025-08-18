@@ -50,6 +50,11 @@ socket.on('model_call', (data) => {
     addModelCallRecord(data.character, data.call_type, data.status_text, data.status);
 });
 
+socket.on('voice_play', (data) => {
+    console.log('收到语音播放请求:', data);
+    playCharacterVoice(data.character, data.text);
+});
+
 socket.on('error', (data) => {
     console.error('错误:', data.message);
     addModelCallRecord('系统', '错误', data.message, 'error');
@@ -709,3 +714,141 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+
+// 语音队列管理器
+class VoiceQueueManager {
+    constructor() {
+        this.queue = [];
+        this.isPlaying = false;
+        this.currentAudio = null;
+    }
+    
+    // 添加语音到队列
+    addToQueue(character, text) {
+        this.queue.push({ character, text });
+        console.log(`语音已加入队列: ${character} - ${text.substring(0, 30)}...`);
+        
+        // 如果当前没有播放，开始播放
+        if (!this.isPlaying) {
+            this.processQueue();
+        }
+    }
+    
+    // 处理语音队列
+    async processQueue() {
+        if (this.queue.length === 0 || this.isPlaying) {
+            return;
+        }
+        
+        this.isPlaying = true;
+        const { character, text } = this.queue.shift();
+        
+        try {
+            console.log(`开始播放队列中的语音: ${character} - ${text.substring(0, 50)}...`);
+            
+            // 调用语音合成API
+            const response = await fetch('/api/voice/synthesize', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    text: text,
+                    character: character
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`语音合成失败: ${response.status}`);
+            }
+            
+            // 获取音频数据
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            
+            // 创建音频对象
+            const audio = new Audio(audioUrl);
+            this.currentAudio = audio;
+            
+            audio.onloadeddata = () => {
+                console.log(`开始播放${character}的语音`);
+            };
+            
+            audio.onended = () => {
+                console.log(`${character}的语音播放完成`);
+                URL.revokeObjectURL(audioUrl); // 释放内存
+                this.currentAudio = null;
+                this.isPlaying = false;
+                
+                // 发送语音播放完成确认到后端
+                this.sendVoiceCompletion(character, text);
+                
+                // 播放下一段语音
+                this.processQueue();
+            };
+            
+            audio.onerror = (error) => {
+                console.error(`${character}的语音播放失败:`, error);
+                URL.revokeObjectURL(audioUrl);
+                this.currentAudio = null;
+                this.isPlaying = false;
+                
+                // 播放下一段语音
+                this.processQueue();
+            };
+            
+            // 播放音频
+            await audio.play();
+            
+        } catch (error) {
+            console.error(`为${character}生成/播放语音失败:`, error);
+            this.isPlaying = false;
+            
+            // 播放下一段语音
+            this.processQueue();
+        }
+    }
+    
+    // 清空队列
+    clearQueue() {
+        this.queue = [];
+        if (this.currentAudio) {
+            this.currentAudio.pause();
+            this.currentAudio = null;
+        }
+        this.isPlaying = false;
+        console.log('语音队列已清空');
+    }
+    
+    // 获取队列状态
+    getQueueStatus() {
+        return {
+            queueLength: this.queue.length,
+            isPlaying: this.isPlaying,
+            currentCharacter: this.isPlaying ? this.queue[0]?.character : null
+        };
+    }
+    
+    // 发送语音播放完成确认
+    sendVoiceCompletion(character, text) {
+        try {
+            socket.emit('voice_completed', {
+                character: character,
+                text: text,
+                timestamp: Date.now()
+            });
+            console.log(`已发送语音完成确认: ${character}`);
+        } catch (error) {
+            console.error('发送语音完成确认失败:', error);
+        }
+    }
+}
+
+// 创建全局语音队列管理器
+const voiceQueueManager = new VoiceQueueManager();
+
+// 语音播放功能 - 现在使用队列管理
+async function playCharacterVoice(character, text) {
+    // 将语音添加到队列
+    voiceQueueManager.addToQueue(character, text);
+}

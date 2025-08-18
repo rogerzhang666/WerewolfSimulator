@@ -8,6 +8,9 @@ werkzeug==2.0.1
 # AI模型接口
 openai>=1.99.0
 
+# 语音合成
+dashscope>=1.24.0
+
 # 测试工具
 pytest==6.2.5
 

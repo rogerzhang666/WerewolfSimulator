@@ -6,7 +6,7 @@ from datetime import datetime
 class Character:
     """角色类，代表游戏中的一个角色"""
 
-    def __init__(self, id, name, gender, style, model, role=""):
+    def __init__(self, id, name, gender, style, model, role="", voice="longxiang"):
         """
         初始化角色
 
@@ -17,6 +17,7 @@ class Character:
             style (str): 角色性格风格
             model (str): 驱动模型名称
             role (str, optional): 角色身份. 默认为空字符串.
+            voice (str, optional): 语音音色. 默认为"longxiang".
         """
         self.id = id
         self.name = name
@@ -24,6 +25,7 @@ class Character:
         self.style = style
         self.model = model
         self.role = role
+        self.voice = voice
         self.alive = True
         self.history = []  # 角色行为历史
         self.memory = {    # 角色记忆系统
@@ -48,6 +50,7 @@ class Character:
             "style": self.style,
             "model": self.model,
             "role": self.role,
+            "voice": self.voice,
             "alive": self.alive
         }
 
@@ -68,7 +71,8 @@ class Character:
             gender=data.get("gender"),
             style=data.get("style"),
             model=data.get("model"),
-            role=data.get("role", "")
+            role=data.get("role", ""),
+            voice=data.get("voice", "longxiang")
         )
         character.alive = data.get("alive", True)
         return character

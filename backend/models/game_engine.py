@@ -5,6 +5,7 @@ import time
 import threading
 import json
 import random
+import asyncio
 from datetime import datetime
 
 from backend.models.game import Game, GamePhase, GameStatus
@@ -12,6 +13,7 @@ from backend.models.character import Character
 from backend.utils.ai_client import get_ai_client
 from backend.utils.prompt_templates import *  # 导入提示词模板
 from backend.utils.memory_manager import MemoryManager  # 导入记忆管理器
+from backend.utils.voice_client import voice_client  # 导入语音客户端
 
 class GameEngine:
     """游戏引擎类，负责管理游戏流程和AI交互"""
@@ -28,6 +30,12 @@ class GameEngine:
         self.game_thread = None
         self.running = False
         self.ai_clients = {}  # 存储角色的AI客户端
+        
+        # 语音完成相关属性
+        self.voice_completion_event = None
+        self.expected_voice_completion = None
+        # 全局AI调用记录管理器
+        self.ai_call_manager = {}
 
     def load_characters_from_config(self, config_file):
         """
@@ -44,7 +52,10 @@ class GameEngine:
                 character = Character.from_dict(data)
                 self.game.add_character(character)
                 # 为每个角色创建AI客户端
-                self.ai_clients[character.id] = get_ai_client(character.model)
+                ai_client = get_ai_client(character.model)
+                self.ai_clients[character.id] = ai_client
+                # 将AI客户端的调用记录合并到全局管理器中
+                self.ai_call_manager.update(ai_client.ai_call_records)
 
             return True
         except Exception as e:
@@ -59,14 +70,23 @@ class GameEngine:
         try:
             self.game.start_game()
             self.running = True
-            # 在新线程中运行游戏循环
-            self.game_thread = threading.Thread(target=self.game_loop)
+            # 在新线程中运行异步游戏循环
+            self.game_thread = threading.Thread(target=self._run_async_game_loop)
             self.game_thread.daemon = True
             self.game_thread.start()
             return True
         except Exception as e:
             print(f"启动游戏失败: {str(e)}")
             return False
+
+    def _run_async_game_loop(self):
+        """在新线程中运行异步游戏循环"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(self.game_loop())
+        finally:
+            loop.close()
 
     def pause_game(self):
         """暂停游戏"""
@@ -102,11 +122,11 @@ class GameEngine:
         self.emit_game_update("游戏已重置")
         return True
 
-    def game_loop(self):
+    async def game_loop(self):
         """游戏主循环"""
         while self.running and self.game.status == GameStatus.RUNNING:
             # 处理当前阶段
-            self.handle_current_phase()
+            await self.handle_current_phase()
 
             # 检查游戏是否结束
             if self.game.phase == GamePhase.END:
@@ -120,13 +140,13 @@ class GameEngine:
 
             # 根据阶段设置等待时间
             if next_phase in [GamePhase.NIGHT, GamePhase.DAWN]:
-                time.sleep(2)  # 短暂过渡
+                await asyncio.sleep(2)  # 短暂过渡
             elif next_phase == GamePhase.DISCUSSION:
-                time.sleep(5)  # 讨论阶段较长
+                await asyncio.sleep(5)  # 讨论阶段较长
             else:
-                time.sleep(3)  # 其他阶段
+                await asyncio.sleep(3)  # 其他阶段
 
-    def handle_current_phase(self):
+    async def handle_current_phase(self):
         """处理当前游戏阶段"""
         phase = self.game.phase
 
@@ -143,9 +163,13 @@ class GameEngine:
         elif phase == GamePhase.DAWN:
             self.handle_dawn_phase()
         elif phase == GamePhase.DISCUSSION:
-            self.handle_discussion_phase()
+            await self.handle_discussion_phase()
         elif phase == GamePhase.VOTE:
             self.handle_vote_phase()
+        elif phase == GamePhase.PK:
+            self.handle_pk_phase()
+        elif phase == GamePhase.REVOTE:
+            self.handle_revote_phase()
 
     def handle_night_phase(self):
         """处理夜晚阶段"""
@@ -172,7 +196,6 @@ class GameEngine:
         # 狼人讨论决定击杀目标
         # 收集每个狼人的意见
         wolf_votes = {}
-        wolf_reasons = {}
 
         for werewolf in werewolves:
             # 构建狼人的上下文信息
@@ -184,9 +207,6 @@ class GameEngine:
                 context += "\n你的狼人同伴已经投票：\n"
                 for target_name, votes in wolf_votes.items():
                     context += f"- {target_name}：{votes}票\n"
-                if wolf_reasons:
-                    for target_name, reason in wolf_reasons.items():
-                        context += f"- 击杀{target_name}的理由：{reason}\n"
 
             # 使用新的提示词模板
             prompt = WEREWOLF_KILL_TEMPLATE.format(
@@ -200,7 +220,12 @@ class GameEngine:
                 ai_client = self.ai_clients.get(werewolf.id)
                 if ai_client:
                     # 获取狼人的击杀决策
-                    kill_decision = ai_client.generate_response(prompt, werewolf, "werewolf_kill").strip()
+                    kill_decision = ai_client.generate_response(prompt, werewolf, "werewolf_kill", "werewolf_kill").strip()
+
+                    # 获取AI调用记录ID
+                    ai_call_id = None
+                    if hasattr(werewolf, 'memory') and 'latest_ai_call_id' in werewolf.memory:
+                        ai_call_id = werewolf.memory['latest_ai_call_id']
 
                     # 解析击杀决策，找到对应的目标角色
                     target = None
@@ -219,25 +244,13 @@ class GameEngine:
                         wolf_votes[target.name] = 0
                     wolf_votes[target.name] += 1
 
-                    # 生成击杀理由
-                    reason_prompt = WEREWOLF_KILL_REASON_TEMPLATE.format(target=target.name)
+                    # 更新狼人记忆（不生成详细理由）
+                    simple_reason = f"选择击杀{target.name}"
+                    MemoryManager.update_werewolf_memory(werewolf, self.game, target, simple_reason)
 
-                    try:
-                        kill_reason = ai_client.generate_response(reason_prompt, werewolf, "werewolf_kill_reason")
-                        wolf_reasons[target.name] = kill_reason
-
-                        # 将击杀理由记录为内心想法，不是公开发言
-                        werewolf.add_inner_thought(
-                            f"选择击杀{target.name}的理由：{kill_reason}",
-                            self.game.current_day,
-                            "werewolf",
-                            "kill_reason"
-                        )
-
-                        # 更新狼人记忆
-                        MemoryManager.update_werewolf_memory(werewolf, self.game, target, kill_reason)
-                    except Exception as e:
-                        print(f"生成击杀理由失败: {str(e)}")
+                    # 记录狼人行动，关联AI调用记录
+                    if ai_call_id:
+                        self.game.log(werewolf.name, f"参与击杀决策，选择{target.name}", "werewolf", False, "action", [ai_call_id])
             except Exception as e:
                 print(f"生成狼人决策失败: {str(e)}")
 
@@ -254,10 +267,6 @@ class GameEngine:
                 # 记录狼人行动（私有日志，只有狼人能看到）
                 for werewolf in werewolves:
                     self.game.log(werewolf.name, f"狼人选择了{target.name}作为击杀目标", "werewolf", False)
-
-                    # 如果有该目标的理由，记录理由
-                    if target.name in wolf_reasons:
-                        self.game.log(werewolf.name, wolf_reasons[target.name], "werewolf", False)
 
         self.emit_game_update("狼人正在行动")
 
@@ -305,7 +314,12 @@ class GameEngine:
             ai_client = self.ai_clients.get(seer.id)
             if ai_client:
                 # 获取预言家的查验决策
-                check_decision = ai_client.generate_response(prompt, seer, "seer_check").strip()
+                check_decision = ai_client.generate_response(prompt, seer, "seer_check", "seer_check").strip()
+
+                # 获取AI调用记录ID
+                ai_call_id = None
+                if hasattr(seer, 'memory') and 'latest_ai_call_id' in seer.memory:
+                    ai_call_id = seer.memory['latest_ai_call_id']
 
                 # 解析查验决策，找到对应的目标角色
                 target = None
@@ -323,35 +337,13 @@ class GameEngine:
                 is_werewolf = target.role == "werewolf"
                 result = "狼人" if is_werewolf else "好人"
 
-                # 只记录预言家自己的日志，不公开
-                self.game.log(seer.name, f"预言家查验了{target.name}，结果是{result}", "seer", False)
+                # 只记录预言家自己的日志，不公开，关联AI调用记录
+                ai_call_ids = [ai_call_id] if ai_call_id else []
+                self.game.log(seer.name, f"预言家查验了{target.name}，结果是{result}", "seer", False, "action", ai_call_ids)
 
-                # 更新预言家记忆
+                # 更新预言家记忆（不生成详细理由）
+                simple_reason = f"查验结果：{result}"
                 MemoryManager.update_seer_memory(seer, self.game, target, result)
-
-                # 生成查验理由
-                reason_prompt = SEER_CHECK_REASON_TEMPLATE.format(target=target.name, result=result)
-
-                try:
-                    check_reason = ai_client.generate_response(reason_prompt, seer, "seer_check_reason")
-                    
-                    # 将查验理由记录为内心想法，不是公开发言
-                    seer.add_inner_thought(
-                        f"查验{target.name}的理由和感想：{check_reason}",
-                        self.game.current_day,
-                        "seer",
-                        "check_reason"
-                    )
-
-                    # 更新决策原因
-                    for decision in seer.memory["decisions"]:
-                        if (decision["type"] == "check" and
-                            decision["target"] == target.name and
-                            decision["day"] == self.game.current_day):
-                            decision["reason"] = f"查验结果：{result}，理由：{check_reason}"
-                            break
-                except Exception as e:
-                    print(f"生成查验理由失败: {str(e)}")
         except Exception as e:
             print(f"生成预言家决策失败: {str(e)}")
 
@@ -385,44 +377,28 @@ class GameEngine:
                 ai_client = self.ai_clients.get(witch.id)
                 if ai_client:
                     # 获取女巫的救人决策
-                    save_decision = ai_client.generate_response(save_prompt, witch, "witch_save").strip().lower()
+                    save_decision = ai_client.generate_response(save_prompt, witch, "witch_save", "witch_save").strip().lower()
+
+                    # 获取AI调用记录ID
+                    ai_call_id = None
+                    if hasattr(witch, 'memory') and 'latest_ai_call_id' in witch.memory:
+                        ai_call_id = witch.memory['latest_ai_call_id']
 
                     # 解析救人决策
-                    use_save = "救" in save_decision
+                    use_save = save_decision.startswith("救") and not save_decision.startswith("不救")
 
                     if use_save:
                         self.game.saved_by_witch = True
                         self.game.witch_used_save = True  # 标记解药已使用
-                        self.game.log(witch.name, f"女巫使用解药救了{killed.name}", "witch", False)
+                        ai_call_ids = [ai_call_id] if ai_call_id else []
+                        self.game.log(witch.name, f"女巫使用解药救了{killed.name}", "witch", False, "action", ai_call_ids)
 
-                        # 更新女巫记忆
+                        # 更新女巫记忆（不生成详细理由）
                         MemoryManager.update_witch_memory(witch, self.game, killed, True)
-
-                        # 生成救人理由
-                        reason_prompt = WITCH_SAVE_REASON_TEMPLATE.format(target=killed.name)
-
-                        try:
-                            save_reason = ai_client.generate_response(reason_prompt, witch, "witch_save_reason")
-                            
-                            # 将救人理由记录为内心想法，不是公开发言
-                            witch.add_inner_thought(
-                                f"救{killed.name}的理由：{save_reason}",
-                                self.game.current_day,
-                                "witch",
-                                "save_reason"
-                            )
-
-                            # 更新决策原因
-                            for decision in witch.memory["decisions"]:
-                                if (decision["type"] == "save" and
-                                    decision["target"] == killed.name and
-                                    decision["day"] == self.game.current_day):
-                                    decision["reason"] = save_reason
-                                    break
-                        except Exception as e:
-                            print(f"生成救人理由失败: {str(e)}")
                     else:
                         # 即使不救，女巫也知道谁被杀了
+                        ai_call_ids = [ai_call_id] if ai_call_id else []
+                        self.game.log(witch.name, f"女巫决定不使用解药", "witch", False, "action", ai_call_ids)
                         MemoryManager.update_witch_memory(witch, self.game, killed, False)
             except Exception as e:
                 print(f"生成女巫救人决策失败: {str(e)}")
@@ -439,10 +415,15 @@ class GameEngine:
                 ai_client = self.ai_clients.get(witch.id)
                 if ai_client:
                     # 获取女巫的毒人决策
-                    poison_decision = ai_client.generate_response(poison_prompt, witch, "witch_poison").strip()
+                    poison_decision = ai_client.generate_response(poison_prompt, witch, "witch_poison", "witch_poison").strip()
+
+                    # 获取AI调用记录ID
+                    ai_call_id = None
+                    if hasattr(witch, 'memory') and 'latest_ai_call_id' in witch.memory:
+                        ai_call_id = witch.memory['latest_ai_call_id']
 
                     # 解析毒人决策
-                    if "不使用" not in poison_decision:
+                    if "不使用" not in poison_decision and "不用" not in poison_decision:
                         # 获取所有存活的角色（除了女巫自己）
                         targets = [c for c in self.game.get_alive_characters() if c.id != witch.id]
 
@@ -464,36 +445,25 @@ class GameEngine:
                             else:
                                 self.game.poisoned_by_witch = target
                                 self.game.witch_used_poison = True  # 标记毒药已使用
-                                self.game.log(witch.name, f"女巫使用毒药毒死了{target.name}", "witch", False)
+                                ai_call_ids = [ai_call_id] if ai_call_id else []
+                                self.game.log(witch.name, f"女巫使用毒药毒死了{target.name}", "witch", False, "action", ai_call_ids)
 
                                 # 更新女巫记忆
                                 MemoryManager.update_witch_memory(witch, self.game, None, False, target)
-
-                                # 生成毒人理由
-                                reason_prompt = WITCH_POISON_REASON_TEMPLATE.format(target=target.name)
-
-                                try:
-                                    poison_reason = ai_client.generate_response(reason_prompt, witch, "witch_poison_reason")
-                                    
-                                    # 将毒人理由记录为内心想法，不是公开发言
-                                    witch.add_inner_thought(
-                                        f"毒{target.name}的理由：{poison_reason}",
-                                        self.game.current_day,
-                                        "witch",
-                                        "poison_reason"
-                                    )
-
-                                    # 更新决策原因
-                                    for decision in witch.memory["decisions"]:
-                                        if (decision["type"] == "poison" and
-                                            decision["target"] == target.name and
-                                            decision["day"] == self.game.current_day):
-                                            decision["reason"] = poison_reason
-                                            break
-                                except Exception as e:
-                                    print(f"生成毒人理由失败: {str(e)}")
+                        else:
+                            # 如果没有找到目标，记录不使用毒药
+                            ai_call_ids = [ai_call_id] if ai_call_id else []
+                            self.game.log(witch.name, f"女巫决定不使用毒药", "witch", False, "action", ai_call_ids)
+                            MemoryManager.update_witch_memory(witch, self.game, None, False, None)
+                    else:
+                        # 明确选择不使用毒药
+                        ai_call_ids = [ai_call_id] if ai_call_id else []
+                        self.game.log(witch.name, f"女巫决定不使用毒药", "witch", False, "action", ai_call_ids)
+                        MemoryManager.update_witch_memory(witch, self.game, None, False, None)
             except Exception as e:
                 print(f"生成女巫毒人决策失败: {str(e)}")
+                # 出错时也要记录女巫的行动，避免环节缺失
+                self.game.log(witch.name, f"女巫决定不使用毒药", "witch", False, "action")
 
         self.emit_game_update("女巫正在行动")
 
@@ -523,7 +493,12 @@ class GameEngine:
             ai_client = self.ai_clients.get(guard.id)
             if ai_client:
                 # 获取守卫的保护决策
-                protect_decision = ai_client.generate_response(prompt, guard, "guard_protect").strip()
+                protect_decision = ai_client.generate_response(prompt, guard, "guard_protect", "guard_protect").strip()
+
+                # 获取AI调用记录ID
+                ai_call_id = None
+                if hasattr(guard, 'memory') and 'latest_ai_call_id' in guard.memory:
+                    ai_call_id = guard.memory['latest_ai_call_id']
 
                 # 解析保护决策，找到对应的目标角色
                 target = None
@@ -552,34 +527,11 @@ class GameEngine:
                         print(f"守卫不能连续两晚保护同一个人，改为保护{target.name}")
 
                 self.game.protected_by_guard = target
-                self.game.log(guard.name, f"守卫保护了{target.name}", "guard", False)
+                ai_call_ids = [ai_call_id] if ai_call_id else []
+                self.game.log(guard.name, f"守卫保护了{target.name}", "guard", False, "action", ai_call_ids)
 
-                # 更新守卫记忆
+                # 更新守卫记忆（不生成详细理由）
                 MemoryManager.update_guard_memory(guard, self.game, target)
-
-                # 生成保护理由
-                reason_prompt = GUARD_PROTECT_REASON_TEMPLATE.format(target=target.name)
-
-                try:
-                    protect_reason = ai_client.generate_response(reason_prompt, guard, "guard_protect_reason")
-                    
-                    # 将保护理由记录为内心想法，不是公开发言
-                    guard.add_inner_thought(
-                        f"保护{target.name}的理由：{protect_reason}",
-                        self.game.current_day,
-                        "guard",
-                        "protect_reason"
-                    )
-
-                    # 更新决策原因
-                    for decision in guard.memory["decisions"]:
-                        if (decision["type"] == "protect" and
-                            decision["target"] == target.name and
-                            decision["day"] == self.game.current_day):
-                            decision["reason"] = protect_reason
-                            break
-                except Exception as e:
-                    print(f"生成保护理由失败: {str(e)}")
         except Exception as e:
             print(f"生成守卫决策失败: {str(e)}")
 
@@ -613,7 +565,7 @@ class GameEngine:
             self.game.log("系统", "平安夜，没有人死亡")
             self.emit_game_update("平安夜，没有人死亡")
 
-    def handle_discussion_phase(self):
+    async def handle_discussion_phase(self):
         """处理讨论阶段"""
         self.game.log("系统", "开始讨论")
         self.emit_game_update("开始讨论")
@@ -675,6 +627,9 @@ class GameEngine:
                     # 记录角色发言到游戏日志（公开发言），关联AI调用记录
                     self.game.log(character.name, public_speech, message_type="public_statement", ai_call_ids=speech_ai_call_ids)
                     self.emit_game_update(f"{character.name}发言: {public_speech}")
+                    
+                    # 通知前端播放语音
+                    self.emit_voice_play(character.name, public_speech)
 
                     # 更新角色记忆
                     MemoryManager.update_discussion_memory(character, self.game, public_speech, alive_characters)
@@ -688,7 +643,8 @@ class GameEngine:
                                 "discussion"
                             )
 
-                    time.sleep(2)  # 角色发言间隔
+                    # 等待语音播放完成 - 通过WebSocket确认
+                    await self.wait_for_voice_completion(character.name)
             except Exception as e:
                 print(f"生成角色发言失败: {str(e)}")
                 self.game.log(character.name, "（发言系统故障）")
@@ -811,7 +767,12 @@ class GameEngine:
                 ai_client = self.ai_clients.get(voter.id)
                 if ai_client:
                     # 获取AI的投票决策
-                    vote_decision = ai_client.generate_response(prompt, voter, "vote").strip()
+                    vote_decision = ai_client.generate_response(prompt, voter, "vote", "vote").strip()
+
+                    # 获取AI调用记录ID
+                    ai_call_id = None
+                    if hasattr(voter, 'memory') and 'latest_ai_call_id' in voter.memory:
+                        ai_call_id = voter.memory['latest_ai_call_id']
 
                     # 解析投票决策，找到对应的目标角色
                     target = None
@@ -837,36 +798,22 @@ class GameEngine:
                         self.game.votes[target.id] = 0
                     self.game.votes[target.id] += 1
 
-                    self.game.log(voter.name, f"投票给了{target.name}", message_type="action")
+                    ai_call_ids = [ai_call_id] if ai_call_id else []
+                    self.game.log(voter.name, f"投票给了{target.name}", message_type="action", ai_call_ids=ai_call_ids)
                     self.emit_game_update(f"{voter.name}投票给了{target.name}")
 
-                    # 生成投票理由
-                    reason_prompt = VOTE_REASON_TEMPLATE.format(target=target.name)
+                    # 更新投票记忆（不生成详细理由）
+                    simple_reason = f"投票给{target.name}"
+                    MemoryManager.update_vote_memory(voter, self.game, target, simple_reason)
 
-                    try:
-                        vote_reason = ai_client.generate_response(reason_prompt, voter, "vote_reason")
-                        
-                        # 将投票理由记录为内心想法，不是公开发言
-                        voter.add_inner_thought(
-                            f"投票给{target.name}的理由：{vote_reason}",
-                            self.game.current_day,
-                            "vote",
-                            "vote_reason"
-                        )
-
-                        # 更新投票记忆
-                        MemoryManager.update_vote_memory(voter, self.game, target, vote_reason)
-
-                        # 为其他角色添加观察记录（只记录投票行为，不包含理由）
-                        for observer in alive_characters:
-                            if observer.id != voter.id:
-                                observer.add_observation(
-                                    f"{voter.name}投票给了{target.name}",
-                                    self.game.current_day,
-                                    "vote"
-                                )
-                    except Exception as e:
-                        print(f"生成投票理由失败: {str(e)}")
+                    # 为其他角色添加观察记录（只记录投票行为，不包含理由）
+                    for observer in alive_characters:
+                        if observer.id != voter.id:
+                            observer.add_observation(
+                                f"{voter.name}投票给了{target.name}",
+                                self.game.current_day,
+                                "vote"
+                            )
 
             except Exception as e:
                 print(f"生成投票决策失败: {str(e)}")
@@ -884,14 +831,28 @@ class GameEngine:
             max_votes = max(self.game.votes.values())
             candidates = [cid for cid, votes in self.game.votes.items() if votes == max_votes]
 
-            # 如果有平票，随机选择一个
-            voted_id = random.choice(candidates)
-            voted_character = next((c for c in alive_characters if c.id == voted_id), None)
-
-            if voted_character:
-                voted_character.alive = False
-                self.game.log("系统", f"{voted_character.name}被投票处决")
-                self.emit_game_update(f"{voted_character.name}被投票处决，得票{max_votes}票")
+            # 如果有平票，进入PK环节
+            if len(candidates) > 1:
+                # 平票情况，设置PK候选人
+                self.game.pk_candidates = candidates
+                candidate_names = []
+                for cid in candidates:
+                    candidate = next((c for c in alive_characters if c.id == cid), None)
+                    if candidate:
+                        candidate_names.append(candidate.name)
+                
+                self.game.log("系统", f"平票：{', '.join(candidate_names)}各得{max_votes}票，进入PK环节")
+                self.emit_game_update(f"平票：{', '.join(candidate_names)}各得{max_votes}票，进入PK环节")
+                # 注意：不直接处决任何人，等待进入PK阶段
+            else:
+                # 非平票情况
+                voted_id = candidates[0]
+                voted_character = next((c for c in alive_characters if c.id == voted_id), None)
+                
+                if voted_character:
+                    voted_character.alive = False
+                    self.game.log("系统", f"{voted_character.name}被投票处决")
+                    self.emit_game_update(f"{voted_character.name}被投票处决，得票{max_votes}票")
 
                 # 为所有角色添加观察记录
                 for character in alive_characters:
@@ -946,15 +907,6 @@ class GameEngine:
                 target.alive = False
                 self.game.log(hunter.name, f"猎人带走了{target.name}")
                 self.emit_game_update(f"猎人带走了{target.name}")
-
-                # 生成决策理由
-                reason_prompt = HUNTER_SKILL_REASON_TEMPLATE.format(target=target.name)
-
-                try:
-                    skill_reason = ai_client.generate_response(reason_prompt, hunter, "hunter_skill_reason")
-                    self.game.log(hunter.name, skill_reason)
-                except Exception as e:
-                    print(f"生成猎人决策理由失败: {str(e)}")
         except Exception as e:
             print(f"生成猎人决策失败: {str(e)}")
             # 出错时随机选择
@@ -1015,6 +967,57 @@ class GameEngine:
             game_state["message"] = message
             self.socketio.emit('game_update', game_state)
         print(f"游戏更新: {message}")
+
+    def emit_voice_play(self, character_name, text):
+        """
+        发送语音播放消息
+
+        Args:
+            character_name (str): 角色名称
+            text (str): 要播放的文本
+        """
+        if self.socketio:
+            voice_data = {
+                "character": character_name,
+                "text": text,
+                "message_id": f"voice_{character_name}_{int(time.time())}"
+            }
+            self.socketio.emit('voice_play', voice_data)
+        print(f"语音播放: {character_name} - {text[:50]}...")
+
+    async def wait_for_voice_completion(self, character_name):
+        """
+        等待语音播放完成
+        
+        Args:
+            character_name (str): 角色名称
+        """
+        # 使用事件等待机制，等待语音播放完成
+        self.voice_completion_event = asyncio.Event()
+        self.expected_voice_completion = character_name
+        
+        try:
+            # 等待语音完成事件，最多等待10秒
+            await asyncio.wait_for(self.voice_completion_event.wait(), timeout=10.0)
+            print(f"{character_name}的语音播放完成，继续下一个角色")
+        except asyncio.TimeoutError:
+            print(f"{character_name}的语音播放超时，继续下一个角色")
+        finally:
+            self.voice_completion_event = None
+            self.expected_voice_completion = None
+
+    def on_voice_completed(self, character_name, text):
+        """
+        语音播放完成回调
+        
+        Args:
+            character_name (str): 角色名称
+            text (str): 播放的文本
+        """
+        if (self.voice_completion_event and 
+            self.expected_voice_completion == character_name):
+            print(f"收到{character_name}的语音完成确认")
+            self.voice_completion_event.set()
 
     def get_game_state(self):
         """
@@ -1081,3 +1084,201 @@ class GameEngine:
 
         # 其他情况都不可见
         return False
+
+    def handle_pk_phase(self):
+        """处理PK发言阶段"""
+        self.game.log("系统", "开始PK发言")
+        self.emit_game_update("开始PK发言")
+        
+        alive_characters = self.game.get_alive_characters()
+        
+        # 找到PK候选人
+        pk_characters = []
+        for candidate_id in self.game.pk_candidates:
+            character = next((c for c in alive_characters if c.id == candidate_id), None)
+            if character:
+                pk_characters.append(character)
+        
+        if not pk_characters:
+            self.game.log("系统", "PK候选人为空，跳过PK阶段")
+            return
+        
+        # PK候选人按顺序发言
+        for character in pk_characters:
+            # 构建角色的上下文信息
+            context = self.build_character_context(character)
+            
+            # 生成PK发言
+            ai_client = self.ai_clients.get(character.id)
+            if not ai_client:
+                continue
+                
+            try:
+                # 使用PK发言模板
+                from backend.utils.prompt_templates import PK_SPEECH_TEMPLATE
+                prompt = PK_SPEECH_TEMPLATE.format(
+                    alive_players=", ".join([c.name for c in alive_characters]),
+                    context=context,
+                    role_inner_guidance=self.get_role_inner_guidance(character.role)
+                )
+                
+                ai_call_id = ai_client.generate_response(prompt, character, "pk_speech")
+                speech = ai_client.generate_response(prompt, character, "pk_speech", ai_call_id).strip()
+                
+                # 记录发言，关联AI调用记录
+                ai_call_ids = [ai_call_id] if ai_call_id else []
+                self.game.log(character.name, speech, "pk", True, "speech", ai_call_ids)
+                self.emit_game_update(f"{character.name}发言: {speech}")
+                
+                # 通知前端播放语音
+                self.emit_voice_play(character.name, speech)
+                
+                # 更新记忆
+                MemoryManager.add_character_statement(character, speech, self.game)
+                
+                # 发言间隔
+                time.sleep(8)
+                
+            except Exception as e:
+                print(f"生成{character.name}的PK发言失败: {str(e)}")
+                fallback_speech = f"我是{character.name}，请大家相信我。"
+                self.game.log(character.name, fallback_speech, "pk", True, "speech")
+                self.emit_game_update(f"{character.name}发言: {fallback_speech}")
+                
+                # 通知前端播放语音
+                self.emit_voice_play(character.name, fallback_speech)
+
+    def handle_revote_phase(self):
+        """处理重新投票阶段"""
+        self.game.log("系统", "开始重新投票")
+        self.emit_game_update("开始重新投票")
+        
+        alive_characters = self.game.get_alive_characters()
+        
+        # 排除PK候选人，他们不能投票
+        voters = []
+        pk_character_ids = set(self.game.pk_candidates)
+        for character in alive_characters:
+            if character.id not in pk_character_ids:
+                voters.append(character)
+        
+        if len(voters) == 0:
+            self.game.log("系统", "没有有效投票者，随机处决PK候选人之一")
+            # 随机处决一个PK候选人
+            if self.game.pk_candidates:
+                voted_id = random.choice(self.game.pk_candidates)
+                voted_character = next((c for c in alive_characters if c.id == voted_id), None)
+                if voted_character:
+                    voted_character.alive = False
+                    self.game.log("系统", f"{voted_character.name}被随机处决")
+                    self.emit_game_update(f"{voted_character.name}被随机处决")
+            # 清理PK状态
+            self.game.pk_candidates = []
+            self.game.revotes = {}
+            return
+        
+        # 清空重新投票记录
+        self.game.revotes = {}
+        self.game.is_revote = True
+        
+        # 可投票的目标是PK候选人
+        targets = []
+        for candidate_id in self.game.pk_candidates:
+            target = next((c for c in alive_characters if c.id == candidate_id), None)
+            if target:
+                targets.append(target)
+        
+        if not targets:
+            self.game.log("系统", "没有有效PK候选人")
+            return
+        
+        # 每个投票者进行投票（除PK候选人外）
+        for voter in voters:
+            # 构建角色的上下文信息
+            context = self.build_character_context(voter)
+            
+            # 生成AI投票决策
+            ai_client = self.ai_clients.get(voter.id)
+            if not ai_client:
+                continue
+                
+            try:
+                # 使用重新投票模板
+                from backend.utils.prompt_templates import REVOTE_TEMPLATE
+                prompt = REVOTE_TEMPLATE.format(
+                    alive_players=", ".join([c.name for c in alive_characters]),
+                    targets=", ".join([t.name for t in targets]),
+                    context=context,
+                    role_inner_guidance=self.get_role_inner_guidance(voter.role)
+                )
+                
+                ai_call_id = ai_client.generate_response(prompt, voter, "revote")
+                vote_decision = ai_client.generate_response(prompt, voter, "revote", ai_call_id).strip()
+                
+                # 解析投票决策
+                target = None
+                for t in targets:
+                    if t.name in vote_decision:
+                        target = t
+                        break
+                
+                # 如果无法解析，随机选择
+                if not target:
+                    target = random.choice(targets)
+                    print(f"警告: {voter.name}的重新投票决策'{vote_decision}'无法解析，随机选择了{target.name}")
+                
+                # 记录投票
+                if target.id not in self.game.revotes:
+                    self.game.revotes[target.id] = 0
+                self.game.revotes[target.id] += 1
+                
+                # 记录投票日志，关联AI调用记录
+                ai_call_ids = [ai_call_id] if ai_call_id else []
+                self.game.log(voter.name, f"投票给了{target.name}", "revote", True, "action", ai_call_ids)
+                self.emit_game_update(f"{voter.name}投票给了{target.name}")
+                
+            except Exception as e:
+                print(f"生成{voter.name}的重新投票决策失败: {str(e)}")
+                # 出错时随机投票
+                target = random.choice(targets)
+                if target.id not in self.game.revotes:
+                    self.game.revotes[target.id] = 0
+                self.game.revotes[target.id] += 1
+                self.game.log(voter.name, f"投票给了{target.name}", "revote", True, "action")
+                self.emit_game_update(f"{voter.name}投票给了{target.name}")
+        
+        # 计算重新投票结果
+        if self.game.revotes:
+            # 找出得票最多的玩家
+            max_votes = max(self.game.revotes.values())
+            candidates = [cid for cid, votes in self.game.revotes.items() if votes == max_votes]
+            
+            # 如果再次平票，随机选择（避免无限循环）
+            if len(candidates) > 1:
+                voted_id = random.choice(candidates)
+                voted_character = next((c for c in alive_characters if c.id == voted_id), None)
+                
+                if voted_character:
+                    voted_character.alive = False
+                    candidate_names = []
+                    for cid in candidates:
+                        candidate = next((c for c in alive_characters if c.id == cid), None)
+                        if candidate:
+                            candidate_names.append(candidate.name)
+                    
+                    self.game.log("系统", f"重新投票再次平票：{', '.join(candidate_names)}各得{max_votes}票，随机处决{voted_character.name}")
+                    self.emit_game_update(f"重新投票再次平票：{', '.join(candidate_names)}各得{max_votes}票，随机处决{voted_character.name}")
+            else:
+                # 非平票情况
+                voted_id = candidates[0]
+                voted_character = next((c for c in alive_characters if c.id == voted_id), None)
+                
+                if voted_character:
+                    voted_character.alive = False
+                    self.game.log("系统", f"{voted_character.name}被重新投票处决")
+                    self.emit_game_update(f"{voted_character.name}被重新投票处决，得票{max_votes}票")
+        
+        # 清理PK状态
+        self.game.pk_candidates = []
+        self.game.revotes = {}
+        self.game.is_revote = False
